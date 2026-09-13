@@ -1,0 +1,96 @@
+{
+  "trigger_scope": {
+    "description": "触发范围",
+    "type": "string",
+    "options": ["group", "private", "both"],
+    "labels": ["仅群聊", "仅私聊", "群聊和私聊"],
+    "default": "group",
+    "hint": "在哪些会话中自动响应 B 站链接"
+  },
+  "need_at_in_group": {
+    "description": "群聊需艾特机器人",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后群里必须 @机器人 才会自动解析，避免群友闲聊时刷屏；私聊与 /bdl 命令不受影响"
+  },
+  "send_video": {
+    "description": "自动发送视频文件",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭时只回复解析信息与 AI 总结，用户可回复「下载」或发送 /bdl 按需获取视频；开启后解析成功即自动下载并发送"
+  },
+  "video_send_mode": {
+    "description": "视频发送方式",
+    "type": "string",
+    "options": ["auto", "file", "url"],
+    "labels": ["自动（失败时降级为直链）", "仅本地文件", "仅直链 URL"],
+    "default": "auto",
+    "hint": "协议端与 AstrBot 不在同一文件系统时（Docker 分离部署）会报 retcode 1200「路径不存在」，此时请选「仅直链 URL」；直链模式不占用机器人磁盘与中转流量"
+  },
+  "max_video_mb": {
+    "description": "视频体积上限 (MB)",
+    "type": "int",
+    "default": 50,
+    "hint": "超过该体积不下载文件，改为发送下载链接；建议不超过 QQ 群对单文件的实际限制"
+  },
+  "enable_summary": {
+    "description": "启用 AI 总结",
+    "type": "bool",
+    "default": true,
+    "hint": "使用当前会话的大模型对视频做简短总结；未配置模型时会自动跳过，不影响其余功能"
+  },
+  "summary_max_chars": {
+    "description": "AI 总结字数上限",
+    "type": "int",
+    "default": 200,
+    "hint": "总结超过该字数会被截断"
+  },
+  "summary_timeout": {
+    "description": "AI 总结超时 (秒)",
+    "type": "int",
+    "default": 45,
+    "hint": "超过该时间未返回则跳过总结，避免群里长时间没有回复"
+  },
+  "reply_limit": {
+    "description": "参考热评条数",
+    "type": "int",
+    "default": 10,
+    "hint": "取多少条热门评论给 AI 作参考；填 0 表示不取热评，只依据标题与简介总结"
+  },
+  "request_timeout": {
+    "description": "网络请求超时 (秒)",
+    "type": "int",
+    "default": 20,
+    "hint": "下载站偶尔响应较慢，建议不低于 15 秒"
+  },
+  "max_concurrent": {
+    "description": "同时下载任务数",
+    "type": "int",
+    "default": 1,
+    "hint": "建议保持 1~2，避免拖慢机器人，也避免给下载站造成压力"
+  },
+  "user_cooldown": {
+    "description": "单用户触发冷却 (秒)",
+    "type": "int",
+    "default": 60,
+    "hint": "同一用户在该时间内重复发送链接会被忽略，防止刷屏；填 0 关闭"
+  },
+  "group_whitelist": {
+    "description": "群白名单",
+    "type": "list",
+    "default": [],
+    "hint": "留空表示所有群生效；填写群号后仅这些群生效"
+  },
+  "send_ebilibili_link": {
+    "description": "附带网页下载链接",
+    "type": "bool",
+    "default": true,
+    "hint": "在回复里附上 ebilibili 等价链接，方便在手机上直接下载"
+  },
+  "verbose_log": {
+    "description": "详细日志",
+    "type": "bool",
+    "default": false,
+    "hint": "输出每一步的耗时、下载进度与降级原因，排查问题时开启"
+  }
+}
