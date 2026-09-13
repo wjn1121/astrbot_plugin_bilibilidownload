@@ -72,6 +72,8 @@ Bot:  [视频]
 
 AstrBot WebUI → 插件市场 → 搜索「**B站视频下载**」→ 一键安装
 
+> 如果市场里搜不到，说明本插件尚未被市场收录（收录需由作者在 [cloud.astrbot.app](https://cloud.astrbot.app/) 提交后生效），可先用下面的手动方式安装。
+
 ### 方式二：手动安装
 
 ```bash
