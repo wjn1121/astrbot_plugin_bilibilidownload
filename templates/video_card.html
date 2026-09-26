@@ -1,0 +1,159 @@
+{#
+  B 站视频信息卡片 —— Jinja2 模板（供 AstrBot `Star.html_render()` 使用）
+
+  用法：
+      url = await self.html_render(TMPL, context, options={...})
+  其中 TMPL 为本文件内容，context 由 core/card.py 的 build_context() 生成。
+
+  样式参考：astrbot_plugin_parser 的 B 站卡片（头像 + 昵称 + 时间 → 标题 → 封面 → 总结）
+  调样式建议用官方在线编辑器：https://t2i-playground.astrbot.app/
+
+  可用变量：
+      card_width    卡片宽度上限(px)，默认 760
+      owner         UP 主昵称
+      owner_face    头像（data URI 或 URL，可空 → 显示灰底圆形占位）
+      pubdate_text  发布时间文本（可空 → 不渲染该行）
+      title         视频标题
+      cover         封面（data URI 或 URL，可空 → 不渲染封面）
+      summary       AI 总结正文（可空 → 不渲染总结块）
+      summary_basis 总结依据标签，如「基于简介与热评」（可空）
+#}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+{# 视口宽度 = 卡片宽度：t2i 会解析这个 meta 来决定截图宽度。
+   不声明时默认 800px，卡片比它窄就会在两侧留下白边。 #}
+<meta name="viewport" content="width={{ card_width | default(760) }}">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: #ffffff; }
+
+  /* 自适应视口：AstrBot 的截图视口宽度未知，用 100% + max-width 保证
+     两种情况都不会截断，也不会出现右侧被裁掉的问题。 */
+  body {
+    width: 100%;
+    max-width: {{ card_width | default(760) }}px;
+    margin: 0 auto;
+    background: #ffffff;
+    color: #18191C;
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+                 "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .card { padding: 22px 22px 24px; }
+
+  /* ── 顶部：头像 + 昵称/时间 + 平台标识 ───────────────────── */
+  .header { display: flex; align-items: center; gap: 14px; }
+
+  .avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    object-fit: cover; background: #E3E5E7; flex: 0 0 auto;
+  }
+
+  .meta { flex: 1 1 auto; min-width: 0; }
+
+  .nickname {
+    font-size: 26px; line-height: 1.25; color: #18191C;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .time { font-size: 20px; line-height: 1.3; color: #9499A0; margin-top: 5px; }
+
+  .brand { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+  .brand-text { font-size: 25px; line-height: 1; color: #00AEEC; font-weight: 500; }
+
+  /* ── 标题 ────────────────────────────────────────────────── */
+  .title {
+    margin-top: 18px;
+    font-size: 30px; font-weight: 600; line-height: 1.45;
+    color: #18191C;
+    word-break: break-word;
+  }
+
+  /* ── 封面 ────────────────────────────────────────────────── */
+  .cover-wrap { margin-top: 16px; }
+
+  .cover {
+    display: block; width: 100%;
+    aspect-ratio: 16 / 9; object-fit: cover;
+    border-radius: 10px; background: #E3E5E7;
+  }
+
+  /* 封面缺失时的占位（避免出现一块突兀的空白） */
+  .cover-placeholder {
+    display: flex; align-items: center; justify-content: center;
+    color: #9499A0; font-size: 22px;
+    background: linear-gradient(135deg, #EDEFF2, #DCE0E5);
+  }
+
+  /* ── AI 总结块 ───────────────────────────────────────────── */
+  .summary {
+    margin-top: 16px;
+    padding: 16px 18px;
+    background: #F6F7F8;      /* 想要纯白底可改为 #FFFFFF 并加 1px #E3E5E7 边框 */
+    border-radius: 10px;
+    font-size: 24px; line-height: 1.62; color: #18191C;
+    word-break: break-word;
+  }
+
+  .summary-basis {
+    margin-top: 10px;
+    font-size: 19px; line-height: 1.4; color: #9499A0;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+
+    <div class="header">
+      {% if owner_face %}
+      <img class="avatar" src="{{ owner_face }}" alt="">
+      {% else %}
+      <div class="avatar"></div>
+      {% endif %}
+
+      <div class="meta">
+        <div class="nickname">{{ owner }}</div>
+        {% if pubdate_text %}
+        <div class="time">{{ pubdate_text }}</div>
+        {% endif %}
+      </div>
+
+      <div class="brand">
+        {# 简化版 B 站标识：内联 SVG，不引入图片资源，也不依赖网络 #}
+        <svg width="31" height="22" viewBox="0 0 34 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 2.5 L12.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M26 2.5 L21.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
+          <rect x="2" y="6.5" width="30" height="16" rx="4.5" stroke="#00AEEC" stroke-width="2.4"/>
+          <circle cx="12" cy="14.5" r="2.1" fill="#00AEEC"/>
+          <circle cx="22" cy="14.5" r="2.1" fill="#00AEEC"/>
+        </svg>
+        <span class="brand-text">bilibili</span>
+      </div>
+    </div>
+
+    <div class="title">{{ title }}</div>
+
+    <div class="cover-wrap">
+      {% if cover %}
+      <img class="cover" src="{{ cover }}" alt="">
+      {% else %}
+      <div class="cover cover-placeholder">视频封面</div>
+      {% endif %}
+    </div>
+
+    {% if summary %}
+    <div class="summary">
+      <div>AI总结：{{ summary }}</div>
+      {% if summary_basis %}
+      <div class="summary-basis">（{{ summary_basis }}）</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,261 @@
+{#
+  热门评论卡片 —— **独立图片**（Jinja2 模板，供 AstrBot html_render 使用）
+
+  版式对齐参考图（B 站解析分享图）：
+    - 顶部信息区：B 站标识 + **视频二维码** + 标题 + 「分辨率 / 类型 / 评论 / 时长」
+    - 纯白底、**无外框 / 无阴影 / 无灰底**（参考图就是白底直排，不是卡片）
+    - 头像为**圆形**
+    - 昵称后跟 **LV 小方块徽章**（"LV" 小字 + 等级数字）、**UP 粉色方块标签**、
+      粉丝勋章、右侧**装扮编号**
+    - 评论附图保持**原始比例**、约 66% 宽、小圆角（不裁切、不拉满宽）
+    - 底部一行「N 天前 · N 回复」+ 右侧点赞数（线条图标，不用 emoji）
+    - 底部署名条
+
+  可用变量：
+      card_width      图片宽度上限(px)
+      video_title     视频标题（可空）
+      plugin_version  版本号（署名条用）
+      meta_items      [{label, value}] 信息区格子（可空 → 整块跳过）
+      qrcode          二维码 SVG 字符串（可空 → 不渲染；**必须 |safe**，否则会被转义）
+      replies         [{author, avatar, level, level_class, content, like,
+                        time_text, reply_count, is_up, picture,
+                        medal_name, medal_level, dress_no}, ...]
+#}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+{# 视口宽度 = 图片宽度：t2i 会解析它来决定截图宽度，不声明时默认 800px #}
+<meta name="viewport" content="width={{ card_width | default(760) }}">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: #FFFFFF; }
+
+  body {
+    width: 100%;
+    max-width: {{ card_width | default(760) }}px;
+    margin: 0 auto;
+    background: #FFFFFF;
+    color: #18191C;
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+                 "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { padding: 18px 20px 12px; }
+
+  /* ── 顶部信息区 ─────────────────────────────────────────── */
+  .head-block { padding-bottom: 14px; border-bottom: 1px solid #E3E5E7; }
+
+  .brand-row { display: flex; align-items: flex-start; gap: 12px; }
+
+  .brand {
+    display: flex; align-items: center; gap: 7px;
+    flex: 0 0 auto; padding-top: 4px;
+  }
+  .brand-text { font-size: 26px; line-height: 1; color: #00AEEC; font-weight: 500; }
+
+  /* 二维码贴在右上角（对齐参考图）；尺寸由 SVG 自身决定 */
+  .qr { margin-left: auto; flex: 0 0 auto; line-height: 0; }
+
+  .video-title {
+    margin-top: 10px;
+    font-size: 22px; font-weight: 600; line-height: 1.42; color: #18191C;
+    word-break: break-word;
+  }
+
+  .info-grid {
+    margin-top: 10px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px;
+  }
+  .info-cell { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .info-label { font-size: 18px; color: #9499A0; flex: 0 0 auto; }
+  .info-value {
+    font-size: 19px; color: #18191C; flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ── 单条评论 ───────────────────────────────────────────── */
+  /* 参考图评论区之间**没有分隔线**，只靠上下留白分开 */
+  .reply { display: flex; gap: 12px; padding: 18px 0; }
+
+  .avatar {
+    width: 50px; height: 50px; border-radius: 50%;
+    object-fit: cover; background: #E3E5E7; flex: 0 0 auto;
+  }
+
+  .body { flex: 1 1 auto; min-width: 0; }
+
+  .name-row {
+    display: flex; align-items: center; gap: 7px; row-gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .name {
+    font-size: 22px; font-weight: 600; color: #18191C;
+    flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* 等级徽章：**小方块 + "LV" 小字 + 大号等级数字**（B 站原生样式），
+     配色按等级（0/1 灰、2 绿、3 蓝、4 蓝紫、5 橙、6 粉红）。 */
+  .lv {
+    display: inline-flex; align-items: center; gap: 1px;
+    font-size: 17px; font-weight: 700; line-height: 1.5;
+    padding: 0 5px; border-radius: 4px;
+    color: #FFFFFF; background: #C9CCD0; flex: 0 0 auto;
+  }
+  .lv i { font-size: 12px; font-style: normal; font-weight: 600; }
+
+  .lv0, .lv1 { background: #C9CCD0; }
+  .lv2 { background: #8CD790; }
+  .lv3 { background: #7BC6E8; }
+  .lv4 { background: #A0A8E8; }
+  .lv5 { background: #F7A85C; }
+  .lv6 { background: linear-gradient(135deg, #FF6699, #F04040); }
+
+  .up-tag {
+    font-size: 15px; font-weight: 700; line-height: 1.7;
+    padding: 0 5px; border-radius: 4px;
+    background: #FB7299; color: #FFFFFF; flex: 0 0 auto;
+  }
+
+  /* 粉丝勋章：浅灰底小标签，无勋章时不渲染 */
+  .medal {
+    font-size: 14px; line-height: 1.7; padding: 0 6px;
+    border-radius: 4px; background: #F1F2F3; color: #61666D;
+    flex: 0 1 auto; max-width: 180px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* 装扮编号：推到昵称行最右（参考图位置）；未佩戴装扮时不渲染 */
+  .dress {
+    margin-left: auto;
+    font-size: 16px; line-height: 1.5; color: #00AEEC;
+    flex: 0 0 auto;
+  }
+
+  .content {
+    margin-top: 7px;
+    font-size: 23px; line-height: 1.6; color: #18191C;
+    word-break: break-word;
+  }
+
+  /* 评论附图：保持原始比例、约 66% 宽、小圆角——与参考图一致。
+     max-height 只是安全阀（防一张超长截图把卡片撑到上万像素、拖垮截图），
+     触发时按比例缩小，**不裁切**。 */
+  .reply-image {
+    margin-top: 9px;
+    display: block;
+    max-width: 66%;
+    max-height: 1000px;
+    border-radius: 6px;
+    background: #F1F2F3;
+  }
+
+  /* ── 底部元信息行 ───────────────────────────────────────── */
+  .meta-row {
+    margin-top: 9px;
+    display: flex; align-items: center;
+    font-size: 18px; color: #9499A0;
+  }
+
+  /* 参考图里「回复数」只是文字（不配图标），只有点赞带图标 */
+  .meta-like {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+
+  /* 线条图标（内联 SVG）：emoji 在不同字体环境下大小与基线都不一致，
+     换 SVG 才能在 t2i 的渲染环境里稳定对齐。 */
+  .ico { width: 18px; height: 18px; flex: 0 0 auto; }
+
+  /* ── 署名条 ─────────────────────────────────────────────── */
+  .footer {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 11px 20px;
+    background: #18191C; color: #FFFFFF;
+    font-size: 17px; line-height: 1.4;
+  }
+  .footer .sep { color: #61666D; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head-block">
+      <div class="brand-row">
+        <div class="brand">
+          {# 简化版 B 站标识：内联 SVG，不引入图片资源、也不依赖网络 #}
+          <svg width="34" height="24" viewBox="0 0 34 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 2.5 L12.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M26 2.5 L21.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
+            <rect x="2" y="6.5" width="30" height="16" rx="4.5" stroke="#00AEEC" stroke-width="2.4"/>
+            <circle cx="12" cy="14.5" r="2.1" fill="#00AEEC"/>
+            <circle cx="22" cy="14.5" r="2.1" fill="#00AEEC"/>
+          </svg>
+          <span class="brand-text">bilibili</span>
+        </div>
+        {% if qrcode %}
+        {# 视频链接二维码：SVG 由 core/qrcode.py 本地生成，必须 |safe 才不会被转义 #}
+        <div class="qr">{{ qrcode | safe }}</div>
+        {% endif %}
+      </div>
+
+      {% if video_title %}<div class="video-title">{{ video_title }}</div>{% endif %}
+
+      {% if meta_items %}
+      <div class="info-grid">
+        {% for item in meta_items %}
+        <div class="info-cell">
+          <span class="info-label">{{ item.label }}</span>
+          <span class="info-value">{{ item.value }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {% for reply in replies %}
+    <div class="reply">
+      {% if reply.avatar %}
+      <img class="avatar" src="{{ reply.avatar }}" alt="">
+      {% else %}
+      <div class="avatar"></div>
+      {% endif %}
+      <div class="body">
+        <div class="name-row">
+          <span class="name">{{ reply.author }}</span>
+          <span class="lv {{ reply.level_class }}"><i>LV</i>{{ reply.level }}</span>
+          {% if reply.is_up %}<span class="up-tag">UP</span>{% endif %}
+          {% if reply.medal_name %}<span class="medal">{{ reply.medal_name }} {{ reply.medal_level }}</span>{% endif %}
+          {% if reply.dress_no %}<span class="dress">NO. {{ reply.dress_no }}</span>{% endif %}
+        </div>
+        <div class="content">{{ reply.content }}</div>
+        {% if reply.picture %}
+        <img class="reply-image" src="{{ reply.picture }}" alt="">
+        {% endif %}
+        <div class="meta-row">
+          <span>
+            {%- if reply.time_text %}{{ reply.time_text }}{% endif %}
+            {%- if reply.reply_count %}{% if reply.time_text %} · {% endif %}{{ reply.reply_count }} 回复{% endif %}
+          </span>
+          {% if reply.like %}
+          <span class="meta-like">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            {{ reply.like }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="footer">
+    <span>astrbot_plugin_bilibilidownload</span>
+    <span class="sep">·</span>
+    <span>v{{ plugin_version | default("0.2.0") }}</span>
+  </div>
+</body>
+</html>

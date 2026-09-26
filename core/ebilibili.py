@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import html
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import aiohttp
@@ -63,11 +64,14 @@ class EbilibiliClient:
         timeout: int = 20,
         retries: int = 2,
         verbose: bool = False,
+        on_attempt: Callable[[str, bool, str], None] | None = None,
     ) -> None:
         self._session = session
         self._timeout = max(5, timeout)
         self._retries = max(0, retries)
         self._verbose = verbose
+        # 每条路径尝试后的上报回调，供 /bdlstatus 统计「哪条路径可用」
+        self._on_attempt = on_attempt
 
     # ---------------------------------------------------------------- 请求层
 
@@ -178,32 +182,44 @@ class EbilibiliClient:
         return PlayUrl(url=url, filename=filename, title=title, source="parser")
 
     async def resolve(
-        self, *, bvid: str, cid: int, original_link: str, need_title: bool = False
+        self,
+        *,
+        bvid: str,
+        cid: int,
+        original_link: str,
+        need_title: bool = False,
     ) -> PlayUrl | None:
         """按 A → B → C 顺序尝试，全部失败返回 None。
 
         不做成"抛最后一次异常"是因为调用方一律会降级为发送网页链接，
         返回 None 更便于表达"这条路走不通"。
+
+        构造时传入的 ``on_attempt(name, ok, detail)`` 会在每条路径尝试后回调，
+        供调用方统计路径可用性；回调本身不抛异常。
         """
         attempts = (
             ("直链接口", lambda: self.get_by_api(bvid, cid)),
             ("表单页", lambda: self.get_by_form(original_link or bvid)),
             ("解析页", lambda: self.get_by_parser(original_link or f"{BASE_URL}/video/{bvid}")),
         )
+        report = self._on_attempt or (lambda *_: None)
 
         for name, coro_factory in attempts:
             try:
                 play = await coro_factory()
             except EbilibiliError as exc:
                 logger.info(f"[ebilibili] {name} 解析失败：{exc}")
+                report(name, False, str(exc))
                 continue
             except Exception as exc:  # noqa: BLE001 - 兜底，任何异常都只降级不崩溃
                 logger.warning(f"[ebilibili] {name} 出现未预期异常：{type(exc).__name__}: {exc}")
+                report(name, False, f"{type(exc).__name__}: {exc}")
                 continue
 
             if not play.filename:
                 play.filename = f"{bvid}.mp4"
             logger.info(f"[ebilibili] {name} 解析成功（{play.filename}）")
+            report(name, True, play.source)
             return play
 
         logger.warning("[ebilibili] 三条路径全部失败")

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+import time
 
 # Windows 文件名非法字符 + ASCII 控制字符
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -37,6 +38,43 @@ def format_count(value: int | float | None) -> str:
     if number >= 10_000:
         return f"{number / 10_000:.1f}万"
     return str(int(number))
+
+
+def humanize_duration(seconds: int | float | None) -> str:
+    """把秒数说成运行时长，例如 7980 -> 2 小时 13 分。
+
+    与 ``format_duration`` 的区别：那个用于视频时长（「3分33秒」），
+    这个用于「跑了多久」，粒度更粗、可读性优先。
+    """
+    total = int(seconds or 0)
+    if total < 60:
+        return f"{total} 秒"
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    if days:
+        return f"{days} 天 {hours} 小时"
+    if hours:
+        return f"{hours} 小时 {minutes} 分"
+    return f"{minutes} 分 {secs} 秒" if secs else f"{minutes} 分"
+
+
+def humanize_age(timestamp: float | None) -> str:
+    """把时间戳说成「2 分钟前」；从未发生过时返回「未使用」。"""
+    if not timestamp:
+        return "未使用"
+    delta = max(0, int(time.time() - timestamp))
+    if delta < 60:
+        return f"{delta} 秒前"
+    if delta < 3600:
+        return f"{delta // 60} 分钟前"
+    if delta < 86400:
+        return f"{delta // 3600} 小时前"
+    if delta < 86400 * 30:
+        return f"{delta // 86400} 天前"
+    if delta < 86400 * 365:
+        return f"{delta // (86400 * 30)} 个月前"
+    return f"{delta // (86400 * 365)} 年前"
 
 
 def sanitize_filename(name: str, fallback: str = "bilibili_video.mp4", max_len: int = 80) -> str:

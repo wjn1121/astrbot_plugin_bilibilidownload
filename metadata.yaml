@@ -1,9 +1,9 @@
 name: astrbot_plugin_bilibilidownload        # 插件标识符（英文，唯一），与仓库/文件夹名一致
 display_name: B站视频下载                    # 插件名称，显示在 AstrBot 市场上
 author: wjn1121                             # 作者
-version: 0.1.1                              # 语义化版本号
-desc: 发送 B 站视频链接即可解析视频信息、由 AI 简要总结，并可下载视频文件发送到会话
-short_desc: B站视频解析 + AI 总结 + 视频下载
+version: 0.2.1                              # 语义化版本号（与 core/constants.py 保持一致）
+desc: 发送 B 站视频链接即可解析视频信息、由 AI 简要总结并渲染成图片卡片，还可按需下载视频文件发送到会话
+short_desc: B站视频解析 + AI 总结卡片 + 视频下载
 repo: https://github.com/wjn1121/astrbot_plugin_bilibilidownload
 support_platforms:                          # 声明支持的平台
   - aiocqhttp

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=760">
+<title>replies_card.html 静态预览（示例数据）</title>
+<!--
+  这是 templates/replies_card.html 的**静态预览版**：把 Jinja2 变量换成示例数据，
+  纯离线自包含（头像用灰底占位），双击用浏览器打开即可看真实布局与配色。
+
+  ⚠️ 真正用于渲染的是 templates/replies_card.html（保留 {{ }} / {% %} 占位符）。
+     预览必须与它保持**同一套 CSS**——否则看预览会误判真实输出。
+     示例数据取自参考图里的真实热评（BV1 学术回战 / 小明修仙传 EP10）。
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: #FFFFFF; }
+
+  body {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    background: #FFFFFF;
+    color: #18191C;
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+                 "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { padding: 18px 20px 12px; }
+
+  .head-block { padding-bottom: 14px; border-bottom: 1px solid #E3E5E7; }
+
+  .brand-row { display: flex; align-items: flex-start; gap: 12px; }
+
+  .brand {
+    display: flex; align-items: center; gap: 7px;
+    flex: 0 0 auto; padding-top: 4px;
+  }
+  .brand-text { font-size: 26px; line-height: 1; color: #00AEEC; font-weight: 500; }
+
+  .qr { margin-left: auto; flex: 0 0 auto; line-height: 0; }
+
+  /* 预览里的二维码占位：真实渲染时这里是 core/qrcode.py 生成的 SVG */
+  .qr-placeholder {
+    width: 148px; height: 148px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #9499A0; font-size: 18px;
+    background: linear-gradient(135deg, #EDEFF2, #DCE0E5);
+  }
+
+  .video-title {
+    margin-top: 10px;
+    font-size: 22px; font-weight: 600; line-height: 1.42; color: #18191C;
+    word-break: break-word;
+  }
+
+  .info-grid {
+    margin-top: 10px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px;
+  }
+  .info-cell { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .info-label { font-size: 18px; color: #9499A0; flex: 0 0 auto; }
+  .info-value {
+    font-size: 19px; color: #18191C; flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .reply { display: flex; gap: 12px; padding: 18px 0; }
+
+  .avatar {
+    width: 50px; height: 50px; border-radius: 50%;
+    object-fit: cover; background: #E3E5E7; flex: 0 0 auto;
+  }
+
+  .body { flex: 1 1 auto; min-width: 0; }
+
+  .name-row {
+    display: flex; align-items: center; gap: 7px; row-gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .name {
+    font-size: 22px; font-weight: 600; color: #18191C;
+    flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .lv {
+    display: inline-flex; align-items: center; gap: 1px;
+    font-size: 17px; font-weight: 700; line-height: 1.5;
+    padding: 0 5px; border-radius: 4px;
+    color: #FFFFFF; background: #C9CCD0; flex: 0 0 auto;
+  }
+  .lv i { font-size: 12px; font-style: normal; font-weight: 600; }
+
+  .lv0, .lv1 { background: #C9CCD0; }
+  .lv2 { background: #8CD790; }
+  .lv3 { background: #7BC6E8; }
+  .lv4 { background: #A0A8E8; }
+  .lv5 { background: #F7A85C; }
+  .lv6 { background: linear-gradient(135deg, #FF6699, #F04040); }
+
+  .up-tag {
+    font-size: 15px; font-weight: 700; line-height: 1.7;
+    padding: 0 5px; border-radius: 4px;
+    background: #FB7299; color: #FFFFFF; flex: 0 0 auto;
+  }
+
+  .medal {
+    font-size: 14px; line-height: 1.7; padding: 0 6px;
+    border-radius: 4px; background: #F1F2F3; color: #61666D;
+    flex: 0 1 auto; max-width: 180px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .dress {
+    margin-left: auto;
+    font-size: 16px; line-height: 1.5; color: #00AEEC;
+    flex: 0 0 auto;
+  }
+
+  .content {
+    margin-top: 7px;
+    font-size: 23px; line-height: 1.6; color: #18191C;
+    word-break: break-word;
+  }
+
+  .reply-image {
+    margin-top: 9px;
+    display: block;
+    max-width: 66%;
+    max-height: 1000px;
+    border-radius: 6px;
+    background: #F1F2F3;
+  }
+
+  /* 预览用的占位块（真实渲染时这里是内嵌的真实评论图） */
+  .reply-image.placeholder {
+    display: flex; align-items: center; justify-content: center;
+    width: 340px; height: 190px;
+    color: #9499A0; font-size: 20px;
+    background: linear-gradient(135deg, #EDEFF2, #DCE0E5);
+  }
+
+  .meta-row {
+    margin-top: 9px;
+    display: flex; align-items: center;
+    font-size: 18px; color: #9499A0;
+  }
+
+  .meta-like {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+
+  .ico { width: 18px; height: 18px; flex: 0 0 auto; }
+
+  .footer {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 11px 20px;
+    background: #18191C; color: #FFFFFF;
+    font-size: 17px; line-height: 1.4;
+  }
+  .footer .sep { color: #61666D; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head-block">
+      <div class="brand-row">
+        <div class="brand">
+          <svg width="34" height="24" viewBox="0 0 34 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 2.5 L12.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M26 2.5 L21.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
+            <rect x="2" y="6.5" width="30" height="16" rx="4.5" stroke="#00AEEC" stroke-width="2.4"/>
+            <circle cx="12" cy="14.5" r="2.1" fill="#00AEEC"/>
+            <circle cx="22" cy="14.5" r="2.1" fill="#00AEEC"/>
+          </svg>
+          <span class="brand-text">bilibili</span>
+        </div>
+        <div class="qr"><div class="qr-placeholder">二维码占位</div></div>
+      </div>
+
+      <div class="video-title">学术回战！拼尽全力仍无法战胜？！【小明修仙传EP10】【AI月月抢位赛】</div>
+
+      <div class="info-grid">
+        <div class="info-cell"><span class="info-label">分辨率</span><span class="info-value">1920 x 1080</span></div>
+        <div class="info-cell"><span class="info-label">类型</span><span class="info-value">游戏</span></div>
+        <div class="info-cell"><span class="info-label">评论</span><span class="info-value">1.2万 条</span></div>
+        <div class="info-cell"><span class="info-label">时长</span><span class="info-value">23:45</span></div>
+      </div>
+    </div>
+
+    <!-- 置顶评论（UP 主本人，带粉丝勋章） -->
+    <div class="reply">
+      <div class="avatar"></div>
+      <div class="body">
+        <div class="name-row">
+          <span class="name">YYStar_</span>
+          <span class="lv lv6"><i>LV</i>6</span>
+          <span class="up-tag">UP</span>
+          <span class="medal">Y之至 17</span>
+          <span class="dress">NO. 000293</span>
+        </div>
+        <div class="content">点赞过十万我就在国庆假期拼命肝出下期互动视频（别问为啥是十万因为我觉得不可能达到这个数字）</div>
+        <div class="meta-row">
+          <span>30天前 · 33 回复</span>
+          <span class="meta-like">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            242
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reply">
+      <div class="avatar"></div>
+      <div class="body">
+        <div class="name-row">
+          <span class="name">BondiaMerauk</span>
+          <span class="lv lv5"><i>LV</i>5</span>
+        </div>
+        <div class="content">UP，这条互动视频的任务量和线程数量都是我所见过的最多最杂的，叹为观止。光理清逻辑链条都得花不少时间吧</div>
+        <div class="meta-row">
+          <span>28天前 · 2 回复</span>
+          <span class="meta-like">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            2
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reply">
+      <div class="avatar"></div>
+      <div class="body">
+        <div class="name-row">
+          <span class="name">家呢必须死额u居然服</span>
+          <span class="lv lv2"><i>LV</i>2</span>
+        </div>
+        <div class="content">我信你</div>
+        <div class="meta-row">
+          <span>13天前</span>
+          <span class="meta-like">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            2
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reply">
+      <div class="avatar"></div>
+      <div class="body">
+        <div class="name-row">
+          <span class="name">替身人格</span>
+          <span class="lv lv6"><i>LV</i>6</span>
+          <span class="dress">NO. 024393</span>
+        </div>
+        <div class="content">听到有一大堆结局的我belike：</div>
+        <div class="reply-image placeholder">评论附图</div>
+        <div class="meta-row">
+          <span>大约 1 个月前</span>
+          <span class="meta-like">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            230
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reply">
+      <div class="avatar"></div>
+      <div class="body">
+        <div class="name-row">
+          <span class="name">秋景忆往昔</span>
+          <span class="lv lv5"><i>LV</i>5</span>
+        </div>
+        <div class="content">好久没见到这么优秀的互动视频了 我上一个玩的优秀互动视频还是goldenegg的 只能说up这个视频做的有那味了</div>
+        <div class="meta-row">
+          <span>大约 1 个月前 · 2 回复</span>
+          <span class="meta-like">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            168
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>astrbot_plugin_bilibilidownload</span>
+    <span class="sep">·</span>
+    <span>v0.2.0</span>
+  </div>
+</body>
+</html>

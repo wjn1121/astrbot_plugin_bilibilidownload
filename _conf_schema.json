@@ -13,6 +13,12 @@
     "default": false,
     "hint": "开启后群里必须 @机器人 才会自动解析，避免群友闲聊时刷屏；私聊与 /bdl 命令不受影响"
   },
+  "react_emoji_id": {
+    "description": "解析提示表情 ID",
+    "type": "int",
+    "default": 289,
+    "hint": "收到链接时给原消息贴一个表情表示「已开始解析」，不再发文字提示。仅 QQ(aiocqhttp) 生效且需要协议端支持表情回应；不支持时会自动回退为文字。填 0 表示始终用文字；想换表情可填其它 QQ 表情 ID"
+  },
   "send_video": {
     "description": "自动发送视频文件",
     "type": "bool",
@@ -42,8 +48,8 @@
   "summary_max_chars": {
     "description": "AI 总结字数上限",
     "type": "int",
-    "default": 200,
-    "hint": "总结超过该字数会被截断"
+    "default": 400,
+    "hint": "总结超过该字数会被截断；默认 400 字，调到 200 以下容易把话说一半就截断"
   },
   "summary_timeout": {
     "description": "AI 总结超时 (秒)",
@@ -56,6 +62,37 @@
     "type": "int",
     "default": 10,
     "hint": "取多少条热门评论给 AI 作参考；填 0 表示不取热评，只依据标题与简介总结"
+  },
+  "show_replies": {
+    "description": "卡片里显示热门评论",
+    "type": "bool",
+    "default": true,
+    "hint": "在解析卡片底部展示热门评论（头像、昵称、等级、点赞数）。与上方「参考热评条数」相互独立：那个决定给 AI 看几条，这个决定给群友看几条"
+  },
+  "replies_show_count": {
+    "description": "热评图展示条数",
+    "type": "int",
+    "default": 5,
+    "hint": "热评图片里显示几条；默认 5 条，建议 3~6，太多会让图片很长。填 0 等同于关闭"
+  },
+  "sessdata": {
+    "description": "B站 SESSDATA（可选）",
+    "type": "string",
+    "default": "",
+    "secret": true,
+    "hint": "留空则完全不需要登录，总结基于标题/简介/标签/热评推断（默认，最安全）。填入后插件会用它读取视频字幕，总结质量显著提升（能说清视频里讲了什么）。这是账号登录凭据：建议使用小号，只读字幕接口、不涉及点赞关注等任何账号操作。"
+  },
+  "prefer_subtitle": {
+    "description": "优先使用字幕总结",
+    "type": "bool",
+    "default": true,
+    "hint": "仅在上方填入 SESSDATA 后生效。开启后有字幕的视频会用字幕做总结（依据标注为「基于字幕」），无字幕时自动回退到元数据总结"
+  },
+  "subtitle_max_chars": {
+    "description": "送入模型的字幕上限 (字)",
+    "type": "int",
+    "default": 6000,
+    "hint": "字幕比热评长得多，设上限避免长视频显著增加模型调用费用；超出部分按时间段整段省略"
   },
   "request_timeout": {
     "description": "网络请求超时 (秒)",
@@ -73,7 +110,13 @@
     "description": "单用户触发冷却 (秒)",
     "type": "int",
     "default": 60,
-    "hint": "同一用户在该时间内重复发送链接会被忽略，防止刷屏；填 0 关闭"
+    "hint": "同一个用户两次触发之间的最小间隔（秒），防止刷屏；填 0 关闭。按「用户」限制，与下方按「视频」限制的输入框相互独立"
+  },
+  "duplicate_window_minutes": {
+    "description": "相同视频重复判定 (分钟)",
+    "type": "int",
+    "default": 10,
+    "hint": "同一个视频在多少分钟内只处理一次；不同用户发同一个链接也算重复（按视频 ID 判定，短链与长链互通）。用于防住群里多人转发同一个视频刷屏；填 0 关闭这层限制"
   },
   "group_whitelist": {
     "description": "群白名单",
@@ -86,6 +129,36 @@
     "type": "bool",
     "default": true,
     "hint": "在回复里附上 ebilibili 等价链接，方便在手机上直接下载"
+  },
+  "forward_threshold": {
+    "description": "转发阈值 (条)",
+    "type": "int",
+    "default": 3,
+    "hint": "本次解析产生的消息条数达到该值时，合并成一条转发消息发出（防刷屏，视频也在其中）。仅 QQ 群聊生效；触发转发时需等视频下载完成、卡片不再先出。填 0 关闭，始终逐条发送"
+  },
+  "forward_sender_name": {
+    "description": "合并转发的显示名称",
+    "type": "string",
+    "default": "B站视频解析",
+    "hint": "合并转发消息里显示的发送者名字；仅在触发合并转发时生效"
+  },
+  "output_image": {
+    "description": "以图片卡片回复",
+    "type": "bool",
+    "default": true,
+    "hint": "把解析信息与 AI 总结渲染成一张图片发送（需要 AstrBot 的文转图服务）；渲染或发送失败会自动退回纯文本，不影响解析与下载"
+  },
+  "card_width": {
+    "description": "卡片宽度 (像素)",
+    "type": "int",
+    "default": 760,
+    "hint": "解析卡片的最大宽度。推荐 700~800；过宽（900 以上）会让 QQ 缩小显示、字反而变小。代码内限制 560~1000"
+  },
+  "card_qrcode": {
+    "description": "热评图带视频二维码",
+    "type": "bool",
+    "default": true,
+    "hint": "在热评图右上角画出视频链接的二维码（扫码跳转 B 站）。二维码由插件本地生成，不联网、不依赖第三方服务；不需要可以关掉"
   },
   "verbose_log": {
     "description": "详细日志",
