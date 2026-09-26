@@ -4,7 +4,7 @@
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.16-blue)](https://github.com/AstrBotDevs/AstrBot)
 [![Platform](https://img.shields.io/badge/platform-QQ_(aiocqhttp)-green)](#)
-[![Version](https://img.shields.io/badge/version-0.2.1-orange)](metadata.yaml)
+[![Version](https://img.shields.io/badge/version-0.2.2-orange)](metadata.yaml)
 [![License](https://img.shields.io/badge/license-MIT-9cf)](LICENSE)
 [![Author](https://img.shields.io/badge/author-wjn1121-lightgrey)](https://github.com/wjn1121)
 
@@ -368,7 +368,7 @@ A：插件只调用**公开且无需登录**的接口（视频信息、热门评
 
 完整记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-### v0.2.1 (2026-09-26)
+### v0.2.2 (2026-09-26)
 
 - 💬 **热评图版式重做**：纯白底直排、圆形头像、等级小方块徽章、`UP` 标签、粉丝勋章与**装扮编号**；附图保持原比例不裁切；底部加署名条
 - 🧾 热评图补齐**顶部信息区**（分辨率 / 类型 / 评论数 / 时长，**零额外请求**）与**视频二维码**（本地生成、不联网、不引依赖，`card_qrcode` 可关）

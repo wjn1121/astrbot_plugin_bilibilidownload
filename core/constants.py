@@ -10,6 +10,6 @@
 from __future__ import annotations
 
 PLUGIN_NAME = "astrbot_plugin_bilibilidownload"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 __all__ = ["PLUGIN_NAME", "VERSION"]
