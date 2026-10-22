@@ -4,7 +4,7 @@
 ``data.subtitle.subtitles[]`` 选一条 → 下载 ``subtitle_url`` 指向的 JSON →
 按时间窗合并成带 ``[mm:ss]`` 前缀的文本。
 
-**前提：需要 SESSDATA。** DESIGN.md 4.2 实测过：未携带登录态时 ``subtitles``
+**前提：需要 SESSDATA。** 实测（2026-09-13）：未携带登录态时 ``subtitles``
 恒为空数组。因此这里把「没有字幕」当作**正常结果**返回 None，由调用方回退到
 元数据总结（L1/L2），不报错、不打扰用户。
 

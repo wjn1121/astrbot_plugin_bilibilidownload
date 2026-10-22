@@ -4,7 +4,7 @@
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.16-blue)](https://github.com/AstrBotDevs/AstrBot)
 [![Platform](https://img.shields.io/badge/platform-QQ_(aiocqhttp)-green)](#)
-[![Version](https://img.shields.io/badge/version-0.2.2-orange)](metadata.yaml)
+[![Version](https://img.shields.io/badge/version-0.2.3-orange)](metadata.yaml)
 [![License](https://img.shields.io/badge/license-MIT-9cf)](LICENSE)
 [![Author](https://img.shields.io/badge/author-wjn1121-lightgrey)](https://github.com/wjn1121)
 
@@ -202,12 +202,13 @@ astrbot_plugin_bilibilidownload/
 │   └── replies_card_preview.html   # 热评卡片静态预览
 ├── README.md             # 本文件
 ├── CHANGELOG.md          # 更新日志
-├── DESIGN.md             # 设计文档（含接口实测记录与故障分析）
 ├── LICENSE               # MIT 许可证
 ├── logo.png              # 插件 Logo
 └── core/
     ├── http.py           # 共享请求头（浏览器 UA）
+    ├── buvid.py          # B站设备指纹 cookie（buvid3）获取与缓存，用于缓解 412 风控
     ├── card.py           # 图片卡片渲染（html_render → text_to_image → 纯文本）
+    ├── qrcode.py         # 极简 QR 码生成（纯标准库，输出 SVG）
     ├── cache.py          # 进程内 TTL 缓存（容量上限 + 命中统计）
     ├── stats.py          # 运行统计（供 /bdlstatus 展示）
     ├── constants.py      # 插件常量（版本号单一来源）
@@ -235,7 +236,7 @@ data/plugin_data/astrbot_plugin_bilibilidownload/
 - **被动正则匹配**：`@filter.regex(...)` 识别链接，无需唤醒词；非 B 站消息完全不响应
 - **零依赖图片卡片**：复用 AstrBot 内置文转图（`html_render` / `text_to_image`），不引入 Pillow / wkhtml / 内建字体；封面与头像下载后以内嵌 data URI 传入，规避 B 站图片 CDN 的 UA/Referer 校验；连续渲染失败 2 次后本进程内自动改回纯文本，不让渲染拖慢回复
 - **纯异步**：`aiohttp` + `asyncio`，下载流式写盘，不阻塞事件循环
-- **发送后清理**：所有发送 `await` 完成后才删除临时文件——早期版本在生成器 `finally` 中删除，会在 AstrBot 真正发送前把文件删掉，导致协议端报 `retcode 1200 路径不存在`（详见 [DESIGN.md](DESIGN.md)）
+- **发送后清理**：所有发送 `await` 完成后才删除临时文件——早期版本在生成器 `finally` 中删除，会在 AstrBot 真正发送前把文件删掉，导致协议端报 `retcode 1200 路径不存在`（详细分析见 CHANGELOG 的 v0.1.1）
 - **发送方式自愈**：本地文件发送失败时自动改用直链，适配协议端与 AstrBot 不在同一文件系统的部署
 - **文本与视频分开发送**：避免「长文本 + 视频」的混合消息链被包装成合并转发，规避各协议端对转发消息中视频段的兼容差异
 - **体积预检**：`HEAD` 拿到 `Content-Length` 即判断，超限不落盘
@@ -382,6 +383,13 @@ A：插件只调用**公开且无需登录**的接口（视频信息、热门评
 ## 🆕 更新日志
 
 完整记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+### v0.2.3 (2026-10-22)
+
+- 🛡️ **修复部署在服务器上的 B 站接口 `412` 风控**：此前所有接口请求**不带任何 cookie**（连浏览器必带的 `buvid3` 也没有），云机房 IP 很容易被判成脚本访问，导致整条解析直接失败
+  - 现在自动取一次 `buvid3` 并缓存，所有接口请求都带上它——**无需登录、无需配置**
+  - 实测：裸请求 `HTTP 412` → 带上 `buvid3` 后 `HTTP 200`
+  - `412` 的报错改成一句能看懂的话（「B 站风控拦截，请稍后再试」），排查细节只写日志、不刷群
 
 ### v0.2.2 (2026-09-26)
 
