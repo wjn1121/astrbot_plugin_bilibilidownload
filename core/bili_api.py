@@ -14,6 +14,7 @@ import aiohttp
 
 from astrbot.api import logger
 
+from .buvid import get_buvid3
 from .http import BASE_HEADERS
 
 VIEW_API = "https://api.bilibili.com/x/web-interface/view"
@@ -122,14 +123,33 @@ class BiliApi:
         self._session = session
         self._timeout = timeout
 
+    async def _headers(self) -> dict[str, str]:
+        """接口请求头：在固定头的基线上补 buvid3 cookie。
+
+        首次调用会去取一次 buvid3 并缓存（见 ``core/buvid.py``）；拿不到时
+        退回不带 cookie 的固定头——补指纹只是缓解风控，不该变成硬依赖。
+        """
+        buvid = await get_buvid3(self._session, timeout=min(self._timeout, 10))
+        if not buvid:
+            return BILI_HEADERS
+        return {**BILI_HEADERS, "Cookie": f"buvid3={buvid}"}
+
     async def _get_json(self, url: str, params: dict | None = None) -> dict:
         try:
             async with self._session.get(
                 url,
                 params=params,
-                headers=BILI_HEADERS,
+                headers=await self._headers(),
                 timeout=aiohttp.ClientTimeout(total=self._timeout),
             ) as resp:
+                if resp.status == 412:
+                    # 412 是 B 站的风控拦截，不是参数错误。详细建议只进日志——
+                    # 这条错误信息会原样发到群里，不该让它变成技术说明书。
+                    logger.warning(
+                        "B 站接口返回 412（风控）：常见原因是服务器 IP 被判定为脚本访问"
+                        "或请求过频。已自动带上 buvid3；可再考虑填入 SESSDATA 提高可信度"
+                    )
+                    raise BiliApiError("B 站风控拦截（HTTP 412），请稍后再试")
                 if resp.status >= 400:
                     raise BiliApiError(f"HTTP {resp.status}")
                 payload = await resp.json(content_type=None)
@@ -151,7 +171,7 @@ class BiliApi:
         try:
             async with self._session.get(
                 url,
-                headers=BILI_HEADERS,
+                headers=await self._headers(),
                 timeout=aiohttp.ClientTimeout(total=self._timeout),
                 allow_redirects=False,
             ) as resp:
@@ -164,7 +184,7 @@ class BiliApi:
         try:
             async with self._session.get(
                 url,
-                headers=BILI_HEADERS,
+                headers=await self._headers(),
                 timeout=aiohttp.ClientTimeout(total=self._timeout),
                 allow_redirects=True,
             ) as resp:
