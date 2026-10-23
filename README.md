@@ -4,7 +4,7 @@
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.16-blue)](https://github.com/AstrBotDevs/AstrBot)
 [![Platform](https://img.shields.io/badge/platform-QQ_(aiocqhttp)-green)](#)
-[![Version](https://img.shields.io/badge/version-0.2.3-orange)](metadata.yaml)
+[![Version](https://img.shields.io/badge/version-0.2.4-orange)](metadata.yaml)
 [![License](https://img.shields.io/badge/license-MIT-9cf)](LICENSE)
 [![Author](https://img.shields.io/badge/author-wjn1121-lightgrey)](https://github.com/wjn1121)
 
@@ -383,6 +383,11 @@ A：插件只调用**公开且无需登录**的接口（视频信息、热门评
 ## 🆕 更新日志
 
 完整记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+### v0.2.4 (2026-10-23)
+
+- ⏱️ **修复：t2i 服务异常时卡片渲染会把回复拖住数分钟** —— 给卡片渲染加了 45 秒总预算（信息卡片 / 文字降级 / 热评图三条链路共用），超时就当渲染失败、直接发文本，不再干等
+- 实测背景：某次 `t2i` 端点返回 502，一条消息从解析成功到视频发出隔了 **5 分 10 秒**
 
 ### v0.2.3 (2026-10-22)
 

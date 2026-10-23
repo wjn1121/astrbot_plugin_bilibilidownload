@@ -218,6 +218,14 @@ def plain_text(info: VideoInfo, *, summary: str | None, summary_basis: str | Non
     return "\n".join(lines)
 
 
+# 单张卡片的**总渲染预算**（秒）。
+# AstrBot 的 t2i 会在多个端点之间轮换重试（日志里的 "trying next..."），服务整体
+# 挂掉时一次 html_render 也可能连拖好几次；没有这个上限时，一条消息能被拖到 4 分钟
+# 以上才发出（2026-10-23 实测：20:54:32 开始渲染，20:59:41 才发出视频）。
+# 超预算就当渲染失败，走纯文本降级——卡片是锦上添花，不能拖慢回复。
+CARD_RENDER_BUDGET = 45
+
+
 async def render_card(
     star: Any,
     session: aiohttp.ClientSession,
@@ -251,20 +259,25 @@ async def render_card(
                 face_uri=face_uri,
                 card_width=card_width,
             )
-            result = await html_render(
-                load_template(),
-                context,
-                options={
-                    "full_page": True,
-                    "type": "jpeg",
-                    "quality": 90,
-                    # Playwright 的 timeout 单位是毫秒：直接把秒数传过去（如 20）
-                    # 会被当成 20ms，截图几乎必然失败。
-                    "timeout": timeout * 1000,
-                    # 视口宽度决定**截图宽度**。不传时 t2i 默认 800px，
-                    # 卡片比它窄，两侧就会留下白边（就是之前看到的「留白」）。
-                    "viewport_width": card_width,
-                },
+            # 外层再套一层总预算：html_render 自己的 timeout 只管「一次截图」，
+            # 管不住 t2i 在多个端点之间的轮换重试。
+            result = await asyncio.wait_for(
+                html_render(
+                    load_template(),
+                    context,
+                    options={
+                        "full_page": True,
+                        "type": "jpeg",
+                        "quality": 90,
+                        # Playwright 的 timeout 单位是毫秒：直接把秒数传过去（如 20）
+                        # 会被当成 20ms，截图几乎必然失败。
+                        "timeout": timeout * 1000,
+                        # 视口宽度决定**截图宽度**。不传时 t2i 默认 800px，
+                        # 卡片比它窄，两侧就会留下白边（就是之前看到的「留白」）。
+                        "viewport_width": card_width,
+                    },
+                ),
+                timeout=CARD_RENDER_BUDGET,
             )
             if result:
                 return str(result)
@@ -278,8 +291,11 @@ async def render_card(
     text_to_image = getattr(star, "text_to_image", None)
     if callable(text_to_image):
         try:
-            result = await text_to_image(
-                plain_text(info, summary=summary, summary_basis=summary_basis)
+            result = await asyncio.wait_for(
+                text_to_image(
+                    plain_text(info, summary=summary, summary_basis=summary_basis)
+                ),
+                timeout=CARD_RENDER_BUDGET,
             )
             if result:
                 return str(result)
@@ -393,16 +409,20 @@ async def render_replies_card(
             "qrcode": _qr_markup(info, page) if with_qrcode else "",
             "replies": items,
         }
-        result = await html_render(
-            load_replies_template(),
-            context,
-            options={
-                "full_page": True,
-                "type": "jpeg",
-                "quality": 90,
-                "timeout": timeout * 1000,
-                "viewport_width": card_width,
-            },
+        # 与信息卡片一样套总预算：热评图渲染失败只是少一张图，不该拖住整条回复。
+        result = await asyncio.wait_for(
+            html_render(
+                load_replies_template(),
+                context,
+                options={
+                    "full_page": True,
+                    "type": "jpeg",
+                    "quality": 90,
+                    "timeout": timeout * 1000,
+                    "viewport_width": card_width,
+                },
+            ),
+            timeout=CARD_RENDER_BUDGET,
         )
         if result:
             return str(result)
