@@ -4,7 +4,7 @@
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.16-blue)](https://github.com/AstrBotDevs/AstrBot)
 [![Platform](https://img.shields.io/badge/platform-QQ_(aiocqhttp)-green)](#)
-[![Version](https://img.shields.io/badge/version-0.2.4-orange)](metadata.yaml)
+[![Version](https://img.shields.io/badge/version-0.2.5-orange)](metadata.yaml)
 [![License](https://img.shields.io/badge/license-MIT-9cf)](LICENSE)
 [![Author](https://img.shields.io/badge/author-wjn1121-lightgrey)](https://github.com/wjn1121)
 
@@ -283,6 +283,14 @@ A：协议端（NapCat / LLOneBot 等）读不到 AstrBot 本地的文件，常�
 3. 仍然频繁 412 时，在面板填入 **`SESSDATA`**（见上方「字幕增强」）——登录态请求的风控阈值明显更宽；
 4. 降低压力：`max_concurrent` 保持 `1`，`user_cooldown` 调大一些。
 
+**Q：日志报 `[Highway] httpUpload ... code 102902`，群里只收到一句提示？**
+
+这是**协议端上传到 QQ 失败**，不是插件下载失败。协议端日志里会先出现「视频信息 / 开始生成视频缩略图」，然后才报 `Highway` 分块上传错误。
+
+- 常见于**视频偏大**（实测 51.9MB 会出现）或**网络中断**；
+- 插件会补发一条带 ebilibili 链接的提示，点开即可自行下载；
+- 想减少这种情况：把「视频体积上限 (MB)」调小（例如 40），超过就只发链接、不尝试发文件。
+
 **Q：提示「视频约 N MB，超过体积上限」？**
 
 A：把「视频体积上限 (MB)」调大，或直接点回复里的 ebilibili 链接自行下载。注意 QQ 群对单文件体积有实际限制，过大的文件即使发出也可能失败。
@@ -383,6 +391,11 @@ A：插件只调用**公开且无需登录**的接口（视频信息、热门评
 ## 🆕 更新日志
 
 完整记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+### v0.2.5 (2026-10-24)
+
+- 🔇 **修复：视频发送彻底失败时群里完全静默** —— 现在会补发一条提示，说明两种可能原因（协议端读不到本地文件 / 视频偏大导致 QQ 上传中断）并附 ebilibili 下载链接
+- 实测背景：51.9MB 视频本地上传 `1200` 失败后，直链方式下协议端其实已下载成功，卡在 NTQQ 的 `Highway` 分块上传（41MB 处、`code 102902`）
 
 ### v0.2.4 (2026-10-23)
 

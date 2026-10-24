@@ -607,7 +607,12 @@ class BilibiliDownloadPlugin(Star):
         if video_path is not None or direct_url:
             return [
                 OutgoingMessage(
-                    kind="video", payload=direct_url or "", video_path=video_path
+                    kind="video",
+                    payload=direct_url or "",
+                    video_path=video_path,
+                    # 两条路都失败时补发这段：让用户至少能拿到下载链接，
+                    # 而不是只在日志里留一行 error（2026-10-24 实测过这种静默失败）。
+                    fallback_text=self._video_fallback(result),
                 )
             ]
         if oversized_mb is not None:
@@ -636,6 +641,21 @@ class BilibiliDownloadPlugin(Star):
             direct_url=direct_url,
             oversized_mb=oversized_mb,
         )
+
+    def _video_fallback(self, result: ProcessResult) -> str:
+        """视频发送彻底失败时的兜底文案（附可自行下载的链接）。
+
+        两种失败要分开说，否则用户按提示改配置也修不好：
+
+        - 本地文件 ``retcode 1200``：协议端读不到 AstrBot 的文件（分离部署）；
+        - 直链发送失败（如 NTQQ 的 ``Highway ... code 102902``）：协议端其实已经
+          下载成功，卡在**上传到 QQ** 那一步，常见于视频偏大或网络中断。
+        """
+        lines = ["⚠️ 视频没有发送成功（本地文件与直链两种方式都失败了）。"]
+        if result.info is not None:
+            lines.append("常见原因：协议端读不到 AstrBot 的本地文件，或视频偏大导致 QQ 上传中断。")
+            lines.append(f"可自行下载：{EbilibiliClient.web_url(result.info.bvid)}")
+        return "\n".join(lines)
 
     def _oversized_tip(self, result: ProcessResult, oversized_mb: float) -> str:
         """视频超过体积上限时的提示（尽量附上可用的下载页链接）。"""
@@ -673,7 +693,12 @@ class BilibiliDownloadPlugin(Star):
             if message.kind == "image":
                 await self._send_image(event, message.payload, message.fallback_text)
             elif message.kind == "video":
-                await self._send_video(event, message.video_path, message.payload or None)
+                sent = await self._send_video(
+                    event, message.video_path, message.payload or None
+                )
+                if not sent and message.fallback_text:
+                    # 发送失败不能静默：补一条带下载链接的提示
+                    await self._send_text(event, message.fallback_text)
             else:
                 await self._send_text(event, message.payload)
 
