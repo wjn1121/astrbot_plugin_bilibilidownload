@@ -28,10 +28,11 @@ import aiohttp
 
 from astrbot.api import logger
 
-from .bili_api import ReplyInfo, VideoInfo
+from .bili_api import ReplyInfo
 from .constants import VERSION
 from .formatting import format_count, format_duration, humanize_age
 from .http import BASE_HEADERS
+from .media import MediaInfo
 from .qrcode import qr_svg
 
 # 模板默认宽度（模板内用 max-width 生效，视口更宽时卡片居中）
@@ -47,6 +48,16 @@ IMAGE_HEADERS = {
     "Referer": "https://www.bilibili.com/",
     "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
 }
+
+# 图片 CDN 的防盗链按 Referer 判定，写死 B 站会让别的平台全部 403。
+# 实测（2026-11-01）：小红书封面带 bilibili Referer → 403、带小红书 Referer → 200，
+# 所以这里必须按来源平台换。头像两边都放行，但统一处理更省心。
+PLATFORM_REFERER = {
+    "bilibili": "https://www.bilibili.com/",
+    "douyin": "https://www.douyin.com/",
+    "xiaohongshu": "https://www.xiaohongshu.com/",
+}
+DEFAULT_REFERER = "https://www.bilibili.com/"
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "video_card.html"
 _REPLIES_TEMPLATE_PATH = (
@@ -93,8 +104,13 @@ def format_pubdate(timestamp: int | None) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(seconds))
 
 
-async def inline_image(session: aiohttp.ClientSession, url: str | None) -> str | None:
+async def inline_image(
+    session: aiohttp.ClientSession, url: str | None, *, referer: str | None = None
+) -> str | None:
     """把远程图片转成 data URI；失败、空内容或超限时返回 None。
+
+    ``referer`` 由调用方按平台给（见 ``PLATFORM_REFERER``）。给 None 时沿用
+    B 站 Referer，保持 v0.2.x 的行为不变。
 
     返回 None 是正常路径——模板会用灰底占位块顶上，不影响卡片其余部分。
     """
@@ -105,10 +121,11 @@ async def inline_image(session: aiohttp.ClientSession, url: str | None) -> str |
     if not url.startswith("http"):
         return None
 
+    headers = IMAGE_HEADERS if not referer else {**IMAGE_HEADERS, "Referer": referer}
     try:
         async with session.get(
             url,
-            headers=IMAGE_HEADERS,
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=INLINE_IMAGE_TIMEOUT),
         ) as resp:
             if resp.status >= 400:
@@ -182,7 +199,7 @@ async def _build_reply_items(
 
 
 def build_context(
-    info: VideoInfo,
+    info: MediaInfo,
     *,
     summary: str | None,
     summary_basis: str | None,
@@ -190,27 +207,33 @@ def build_context(
     face_uri: str | None,
     card_width: int = DEFAULT_CARD_WIDTH,
 ) -> dict:
-    """把 ``VideoInfo`` 映射成模板变量。
+    """把 ``MediaInfo`` 映射成模板变量。
 
-    用 ``getattr`` 兜底：``pubdate`` / ``owner_face`` 是为卡片新增的字段，
-    旧版 ``VideoInfo`` 没有它们时卡片仍可渲染，只是少一行时间、头像走占位。
+    入参是跨平台模型，所以新增平台不需要再写一套卡片：只要 ``parse()`` 填好了
+    标题 / 作者 / 封面 / 头像 / 发布时间，模板就能直接渲染。
+    变量名保持与 v0.2.x 一致（``owner`` / ``title`` …），模板文件不用改。
+
+    ``brand`` 是右上角那个平台角标：模板按它决定画哪家的标识。取不到平台
+    （老数据 / 第三方构造的 MediaInfo）时给空串，模板会整块跳过——**宁可没有
+    角标，也不要把抖音的内容标成 bilibili**。
     """
     return {
         "card_width": card_width,
-        "owner": (getattr(info, "owner", "") or "未知 UP 主").strip(),
+        "brand": (info.platform or "").strip().lower(),
+        "owner": (info.author or "未知 UP 主").strip(),
         "owner_face": face_uri or "",
-        "pubdate_text": format_pubdate(getattr(info, "pubdate", None)),
-        "title": (getattr(info, "title", "") or "B站视频").strip(),
+        "pubdate_text": format_pubdate(info.pubdate),
+        "title": (info.title or "视频").strip(),
         "cover": cover_uri or "",
         "summary": (summary or "").strip(),
         "summary_basis": (summary_basis or "").strip(),
     }
 
 
-def plain_text(info: VideoInfo, *, summary: str | None, summary_basis: str | None) -> str:
+def plain_text(info: MediaInfo, *, summary: str | None, summary_basis: str | None) -> str:
     """``text_to_image`` 降级用的纯文本内容。"""
-    title = (getattr(info, "title", "") or "B站视频").strip()
-    owner = (getattr(info, "owner", "") or "未知 UP 主").strip()
+    title = (info.title or "视频").strip()
+    owner = (info.author or "未知 UP 主").strip()
     lines = [f"📺 {title}", f"👤 {owner}"]
     if summary:
         basis = f"（{summary_basis}）" if summary_basis else ""
@@ -230,7 +253,7 @@ async def render_card(
     star: Any,
     session: aiohttp.ClientSession,
     *,
-    info: VideoInfo,
+    info: MediaInfo,
     summary: str | None,
     summary_basis: str | None = None,
     card_width: int = DEFAULT_CARD_WIDTH,
@@ -247,9 +270,10 @@ async def render_card(
     html_render = getattr(star, "html_render", None)
     if callable(html_render):
         try:
+            referer = PLATFORM_REFERER.get((info.platform or "").lower(), DEFAULT_REFERER)
             cover_uri, face_uri = await asyncio.gather(
-                inline_image(session, getattr(info, "cover", None)),
-                inline_image(session, getattr(info, "owner_face", None)),
+                inline_image(session, info.cover, referer=referer),
+                inline_image(session, info.author_avatar, referer=referer),
             )
             context = build_context(
                 info,
@@ -322,41 +346,47 @@ def replies_template_available() -> bool:
     return _REPLIES_TEMPLATE_PATH.is_file()
 
 
-def _meta_items(info: VideoInfo) -> list[dict]:
+def _meta_items(info: MediaInfo) -> list[dict]:
     """热评图顶部信息区的「标签 / 值」列表（对齐参考图的排布）。
 
-    只用 ``view`` 接口里已有的字段，**不额外发请求**。参考图里还有「大小 / 画质」
-    两个格子，但它们要额外调 ``playurl``，这里不做。
+    只用 ``parse()`` 已经拿到的字段，**不额外发请求**：分辨率与分区来自
+    ``extras``（B 站填的），评论数与时长来自通用字段。非 B 站平台没填的项自动省略，
+    所以新平台即使什么都不补，热评图也只是少两格而已。
     """
     items: list[dict] = []
 
-    width = int(getattr(info, "width", 0) or 0)
-    height = int(getattr(info, "height", 0) or 0)
+    try:
+        width = int(info.extra("width") or 0)
+        height = int(info.extra("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0
     if width and height:
         items.append({"label": "分辨率", "value": f"{width} x {height}"})
 
-    tname = (getattr(info, "tname", "") or "").strip()
+    tname = str(info.extra("tname") or "").strip()
     if tname:
         items.append({"label": "类型", "value": tname})
 
-    reply_count = int(getattr(info, "reply", 0) or 0)
+    reply_count = info.stat("reply")
     if reply_count:
         items.append({"label": "评论", "value": f"{format_count(reply_count)} 条"})
 
-    duration = int(getattr(info, "duration", 0) or 0)
-    if duration:
-        items.append({"label": "时长", "value": format_duration(duration)})
+    if info.duration:
+        items.append({"label": "时长", "value": format_duration(info.duration)})
 
     return items
 
 
-def _qr_markup(info: VideoInfo, page: int) -> str:
-    """视频链接的二维码 SVG；拿不到链接或生成失败时返回空串（模板整块跳过）。"""
-    bvid = (getattr(info, "bvid", "") or "").strip()
-    if not bvid:
+def _qr_markup(info: MediaInfo, page: int) -> str:
+    """视频链接的二维码 SVG；拿不到链接或生成失败时返回空串（模板整块跳过）。
+
+    链接优先取平台给的 ``extras["qr_url"]``（B 站要指向 bilibili.com 而不是下载站），
+    没有就退回用户发的原始链接——扫出来至少能打开同一个内容。
+    """
+    url = str(info.extra("qr_url") or "").strip() or info.source_url or info.web_url
+    if not url:
         return ""
-    url = f"https://www.bilibili.com/video/{bvid}"
-    if page > 1:
+    if page > 1 and "p=" not in url and "?" not in url:
         url += f"?p={page}"
     try:
         return qr_svg(url)
@@ -369,7 +399,7 @@ async def render_replies_card(
     star: Any,
     session: aiohttp.ClientSession,
     *,
-    info: VideoInfo,
+    info: MediaInfo,
     replies: list[ReplyInfo],
     show_count: int,
     card_width: int = DEFAULT_CARD_WIDTH,
@@ -392,18 +422,23 @@ async def render_replies_card(
         return None
 
     try:
+        try:
+            owner_id = int(info.author_id or 0)
+        except (TypeError, ValueError):
+            owner_id = 0
         items = await _build_reply_items(
             session,
             replies,
             show_count,
-            owner_mid=getattr(info, "owner_mid", 0) or 0,
+            owner_mid=owner_id,
         )
         if not items:
             return None
 
         context = {
             "card_width": card_width,
-            "video_title": (getattr(info, "title", "") or "").strip(),
+            "brand": (info.platform or "").strip().lower(),
+            "video_title": (info.title or "").strip(),
             "plugin_version": VERSION,
             "meta_items": _meta_items(info),
             "qrcode": _qr_markup(info, page) if with_qrcode else "",

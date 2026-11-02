@@ -122,6 +122,8 @@
         {% endif %}
       </div>
 
+      {# 角标跟着来源平台走：把抖音的内容打成「bilibili」，比不放标识更让人困惑 #}
+      {% if brand == "bilibili" %}
       <div class="brand">
         {# 简化版 B 站标识：内联 SVG，不引入图片资源，也不依赖网络 #}
         <svg width="31" height="22" viewBox="0 0 34 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -133,6 +135,26 @@
         </svg>
         <span class="brand-text">bilibili</span>
       </div>
+      {% elif brand == "douyin" %}
+      <div class="brand">
+        {# 抖音音符标识。官方是青 + 红双色音符，深色卡片上双色反而糊，这里只保留轮廓色 #}
+        <svg width="27" height="27" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 4.4v11.3" stroke="#25F4EE" stroke-width="2.3" stroke-linecap="round"/>
+          <circle cx="9.4" cy="16.2" r="3.1" stroke="#25F4EE" stroke-width="2.3"/>
+          <path d="M12 4.4c.2 2.7 2.2 4.7 4.9 4.9" stroke="#FE2C55" stroke-width="2.3" stroke-linecap="round"/>
+        </svg>
+        <span class="brand-text" style="color:#25F4EE">抖音</span>
+      </div>
+      {% elif brand == "xiaohongshu" %}
+      <div class="brand">
+        {# 小红书标识（书本对开） #}
+        <svg width="27" height="27" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3.4" y="4.4" width="17.2" height="15.2" rx="3.6" stroke="#FF2442" stroke-width="2.2"/>
+          <path d="M12 4.4v15.2" stroke="#FF2442" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        <span class="brand-text" style="color:#FF2442">小红书</span>
+      </div>
+      {% endif %}
     </div>
 
     <div class="title">{{ title }}</div>

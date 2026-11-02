@@ -47,12 +47,22 @@ def _human_mb(size_bytes: int | None) -> float:
     return round((size_bytes or 0) / 1024 / 1024, 1)
 
 
-async def probe_size(session: aiohttp.ClientSession, url: str, timeout: int) -> int | None:
-    """尝试用 HEAD 预取文件大小；不支持 HEAD 时返回 None（不视为错误）。"""
+async def probe_size(
+    session: aiohttp.ClientSession,
+    url: str,
+    timeout: int,
+    headers: dict[str, str] | None = None,
+) -> int | None:
+    """尝试用 HEAD 预取文件大小；不支持 HEAD 时返回 None（不视为错误）。
+
+    ``headers`` 是平台自定义的下载头（例如抖音要带 Referer、小红书要带 UA），
+    与默认的浏览器头合并，同名字段以平台为准。
+    """
+    merged = {**DOWNLOAD_HEADERS, **(headers or {})}
     try:
         async with session.head(
             url,
-            headers=DOWNLOAD_HEADERS,
+            headers=merged,
             timeout=aiohttp.ClientTimeout(total=timeout),
             allow_redirects=True,
         ) as resp:
@@ -74,16 +84,19 @@ async def download_video(
     max_bytes: int,
     timeout: int,
     on_progress: Callable[[int, int | None], None] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> Path:
     """把 url 流式下载到 dest_dir/filename，返回落地路径。
 
     抛出 DownloadError / VideoTooLarge，调用方负责降级。
+    ``headers`` 同 ``probe_size``：平台自定义下载头，与默认头合并。
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     target = dest_dir / filename
     part = dest_dir / (filename + ".part")
+    merged_headers = {**DOWNLOAD_HEADERS, **(headers or {})}
 
-    known_size = await probe_size(session, url, timeout)
+    known_size = await probe_size(session, url, timeout, headers=headers)
     if known_size is not None and known_size > max_bytes:
         raise VideoTooLarge(known_size, max_bytes)
 
@@ -91,7 +104,7 @@ async def download_video(
     try:
         async with session.get(
             url,
-            headers=DOWNLOAD_HEADERS,
+            headers=merged_headers,
             timeout=aiohttp.ClientTimeout(total=None, sock_connect=timeout, sock_read=timeout * 3),
             allow_redirects=True,
         ) as resp:

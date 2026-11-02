@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>B站视频下载</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">
+        <h1>📺 B站视频下载</h1>
+        <p class="sub" id="version">正在加载…</p>
+      </div>
+
+      <!-- 平台是左栏的一级入口：每进一个平台页，改的都是「这个平台」自己的东西 -->
+      <nav class="nav" id="nav">
+        <button type="button" class="nav-item on" data-tab="overview">📊 <span>概览</span></button>
+        <div class="nav-label">平台</div>
+        <button type="button" class="nav-item" data-tab="bilibili">📺 <span>哔哩哔哩</span><i class="dot" id="dotBilibili" hidden></i></button>
+        <button type="button" class="nav-item" data-tab="douyin">🎵 <span>抖音</span><i class="dot" id="dotDouyin" hidden></i></button>
+        <button type="button" class="nav-item" data-tab="xiaohongshu">📕 <span>小红书</span><i class="dot" id="dotXiaohongshu" hidden></i></button>
+        <div class="nav-label">工具</div>
+        <button type="button" class="nav-item" data-tab="probe">🔍 <span>试解析</span></button>
+        <button type="button" class="nav-item" data-tab="history">🕘 <span>最近</span></button>
+        <button type="button" class="nav-item" data-tab="cache">💾 <span>缓存</span></button>
+      </nav>
+
+      <div class="side-actions">
+        <button id="refresh" class="ghost" type="button">🔄 刷新数据</button>
+      </div>
+
+      <p class="side-note">
+        面板里的调整会覆盖 AstrBot 插件配置的同名项（存在插件数据目录，不写配置文件）；
+        每项都会标出来源，想彻底回到配置值就点该项的「恢复」。
+      </p>
+    </aside>
+
+    <main class="content">
+      <!-- ── 概览 ─────────────────────────────────────────────── -->
+      <section class="pane on" data-pane="overview">
+        <section class="card">
+          <h2>运行状态</h2>
+          <div id="stats" class="grid"></div>
+          <p class="hint" id="cardState"></p>
+        </section>
+
+        <section class="card">
+          <h2>平台一览 <small>点左侧平台名进各自的设置页</small></h2>
+          <div id="platformOverview" class="platform-grid"></div>
+          <p class="hint" id="platformErrors"></p>
+        </section>
+
+        <section class="card">
+          <h2>下载站路径 <small>B 站专用：三条路径逐级降级，任一条可用就能出文件</small></h2>
+          <div id="attempts" class="attempts"></div>
+        </section>
+
+        <section class="card">
+          <h2>最近一次错误</h2>
+          <p class="hint" id="lastError">暂无错误记录</p>
+        </section>
+      </section>
+
+      <!-- ── 哔哩哔哩 ─────────────────────────────────────────── -->
+      <section class="pane" data-pane="bilibili">
+        <section class="card" id="biliHead">
+          <h2 class="card-title">
+            <span>哔哩哔哩 <small id="biliCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="biliEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="biliState"></div>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>登录 <small>扫码后自动写入 SESSDATA，用于读取字幕</small></span>
+            <span class="badge" id="biliLoginBadge">检查中…</span>
+          </h2>
+          <p class="hint" id="biliLoginHint">不登录也能解析，只是 AI 总结只能靠标题/简介/热评推断。</p>
+
+          <div class="login-row">
+            <button id="biliQrStart" class="primary" type="button">📱 扫码登录</button>
+            <button id="biliCheck" class="ghost" type="button">检测登录态</button>
+            <button id="biliLogout" class="ghost danger" type="button">退出登录</button>
+          </div>
+
+          <div id="biliQrBox" class="qr-box" hidden>
+            <div class="qr-frame"><img id="biliQrImg" alt="B站登录二维码" /></div>
+            <div class="qr-side">
+              <p class="qr-state" id="biliQrState">正在获取二维码…</p>
+              <p class="hint" id="biliQrTip">用 <b>哔哩哔哩</b> App 扫一扫；二维码约 3 分钟有效。</p>
+              <button id="biliQrCancel" class="ghost" type="button">取消</button>
+            </div>
+          </div>
+
+          <details class="manual">
+            <summary>或者手动填 SESSDATA</summary>
+            <div class="field-row">
+              <input id="biliSessdata" type="password" placeholder="粘贴 SESSDATA（留空则清除）" autocomplete="off" />
+              <button id="biliSessdataSave" class="ghost" type="button">保存</button>
+            </div>
+            <p class="hint">浏览器 F12 → Application → Cookie → bilibili.com → SESSDATA。建议用小号。</p>
+          </details>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="biliSave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="biliTune"></div>
+        </section>
+      </section>
+
+      <!-- ── 抖音 ─────────────────────────────────────────────── -->
+      <section class="pane" data-pane="douyin">
+        <section class="card" id="dyHead">
+          <h2 class="card-title">
+            <span>抖音 <small id="dyCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="dyEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="dyState"></div>
+          <p class="hint">
+            抖音要求 <code>a_bogus</code> 签名，插件只能读分享页里内嵌的数据——这份数据
+            <b>时有时无</b>，拿到就正常解析，拿不到会回一句提示。填了下面的接口后会优先走它。
+          </p>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>第三方解析接口 <small>可选</small></span>
+            <span class="badge" id="dyApiBadge">检查中…</span>
+          </h2>
+          <div class="field-row">
+            <input id="dyApi" type="text" placeholder="https://api.example.com/parse?url={url}" autocomplete="off" />
+            <button id="dyApiSave" class="ghost" type="button">保存</button>
+            <button id="dyApiTest" class="ghost" type="button">测试</button>
+          </div>
+          <p class="hint">
+            接口需返回 JSON（含 <code>video_url</code> / <code>play_url</code> / <code>images</code> 之类常见键即可）。
+            支持 <code>{url}</code> 占位符，不写则自动追加 <code>?url=</code>。留空表示不用第三方接口。
+          </p>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="dySave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="dyTune"></div>
+        </section>
+      </section>
+
+      <!-- ── 小红书 ───────────────────────────────────────────── -->
+      <section class="pane" data-pane="xiaohongshu">
+        <section class="card" id="xhsHead">
+          <h2 class="card-title">
+            <span>小红书 <small id="xhsCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="xhsEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="xhsState"></div>
+          <p class="hint">图文笔记会自动发图集（不占体积上限）；视频走与 B 站相同的下载链路。</p>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>Cookie <small>可选，能提高「需登录才可见」笔记的成功率</small></span>
+            <span class="badge" id="xhsCookieBadge">检查中…</span>
+          </h2>
+          <div class="field-row">
+            <input id="xhsCookie" type="password" placeholder="web_session=xxx; 其他 cookie 也一并粘上" autocomplete="off" />
+            <button id="xhsCookieSave" class="ghost" type="button">保存</button>
+            <button id="xhsCookieTest" class="ghost" type="button">测试</button>
+          </div>
+          <p class="hint">浏览器 F12 → Network → 任意 xiaohongshu.com 请求 → 复制整段 Cookie。</p>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="xhsSave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="xhsTune"></div>
+        </section>
+      </section>
+
+      <!-- ── 试解析 ───────────────────────────────────────────── -->
+      <section class="pane" data-pane="probe">
+        <section class="card">
+          <h2>试解析 <small>不会发到群里，也不占去重窗口</small></h2>
+          <textarea id="probeInput" rows="3" placeholder="粘贴链接、BV 号或分享口令，例如 https://www.bilibili.com/video/BV1dwYE68ED2?p=2"></textarea>
+          <div class="probe-actions">
+            <label class="check"><input type="checkbox" id="probeSummary" checked /> 同时生成 AI 总结<small class="cost">花 1 次模型 token</small></label>
+            <button id="probeBtn" class="primary" type="button">开始解析</button>
+          </div>
+          <p class="hint" id="probeHint">每次试解析都会真的请求一次站方接口，所以做了 5 秒限流。勾选「AI 总结」会调一次当前会话的模型（几百 token，走你自己的模型额度），只想看能不能解析就取消勾选。</p>
+        </section>
+
+        <section class="card" id="probeResult" hidden>
+          <h2>解析结果 <small id="probeMs"></small></h2>
+          <div class="probe-body">
+            <div class="probe-info">
+              <div id="probeMeta" class="kv"></div>
+              <div id="probeSummaryBox" class="summary-box" hidden>
+                <span class="summary-tag" id="probeBasis"></span>
+                <p id="probeSummaryText"></p>
+              </div>
+              <p class="hint" id="probeNotes"></p>
+            </div>
+            <figure class="probe-card" id="probeCardBox" hidden>
+              <img id="probeCard" alt="卡片预览" />
+              <figcaption>实际发出的卡片</figcaption>
+            </figure>
+          </div>
+        </section>
+      </section>
+
+      <!-- ── 最近 ─────────────────────────────────────────────── -->
+      <section class="pane" data-pane="history">
+        <section class="card">
+          <h2 class="card-title">
+            <span>最近解析 <small id="historyMeta"></small></span>
+            <select id="historyPlatform">
+              <option value="">全部平台</option>
+            </select>
+          </h2>
+          <div id="historyList" class="history"></div>
+        </section>
+      </section>
+
+      <!-- ── 缓存 ─────────────────────────────────────────────── -->
+      <section class="pane" data-pane="cache">
+        <section class="card">
+          <h2 class="card-title">
+            <span>接口缓存 <small>命中率越高，重复链接省下的请求越多</small></span>
+            <button id="clearCache" class="ghost danger" type="button">清空缓存</button>
+          </h2>
+          <div id="caches" class="grid"></div>
+          <p class="hint">缓存由各平台自己持有，插件重载或重启后自动清空。</p>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- AstrBot 会把这条路径替换成带 path token 的 bridge SDK（见 plugin_page_service.replace_bridge_url）。
+       漏了它，window.AstrBotPluginView 就是 undefined，面板会整体退回「请升级 AstrBot」。
+       而且它必须排在 app.js 之前：app.js 是同步脚本，执行时就要用到 bridge。 -->
+  <script src="/api/plugin/page/bridge-sdk.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -13,6 +13,12 @@
     "default": false,
     "hint": "开启后群里必须 @机器人 才会自动解析，避免群友闲聊时刷屏；私聊与 /bdl 命令不受影响"
   },
+  "enabled_platforms": {
+    "description": "启用的解析平台",
+    "type": "list",
+    "default": ["bilibili", "douyin", "xiaohongshu"],
+    "hint": "填平台标识：bilibili / douyin / xiaohongshu。留空表示全部启用；书写顺序决定同一段文本先问哪个平台。填了但没实现的平台会被忽略，不会报错。注意：抖音需要先在 Web 面板「平台」页填第三方解析接口，否则只能识别链接给一句提示"
+  },
   "react_emoji_id": {
     "description": "解析提示表情 ID",
     "type": "int",
@@ -159,6 +165,12 @@
     "type": "bool",
     "default": true,
     "hint": "在热评图右上角画出视频链接的二维码（扫码跳转 B 站）。二维码由插件本地生成，不联网、不依赖第三方服务；不需要可以关掉"
+  },
+  "history_keep": {
+    "description": "面板保留解析记录条数",
+    "type": "int",
+    "default": 50,
+    "hint": "Web 面板「最近」页保留多少条解析记录（含成功与失败），存在插件数据目录里，插件升级不丢；填 0 表示不记录"
   },
   "verbose_log": {
     "description": "详细日志",

@@ -10,6 +10,9 @@
 from __future__ import annotations
 
 PLUGIN_NAME = "astrbot_plugin_bilibilidownload"
-VERSION = "0.2.5"
+VERSION = "0.3"
 
-__all__ = ["PLUGIN_NAME", "VERSION"]
+# 日志前缀：main.py 与 core/dispatch.py 都要用，集中在这里避免两份字面量漂移
+LOG_TAG = "[bilibili-download]"
+
+__all__ = ["LOG_TAG", "PLUGIN_NAME", "VERSION"]

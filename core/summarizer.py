@@ -15,8 +15,8 @@ import asyncio
 
 from astrbot.api import logger
 
-from .bili_api import VideoInfo
 from .formatting import format_count, format_duration, short_text
+from .media import MediaInfo
 
 # 简介太长会挤占 prompt，300 字足够表达"这是什么视频"
 DESC_LIMIT = 300
@@ -43,17 +43,18 @@ PROMPT_TEMPLATE = """你是视频内容概括助手。请用中文、3~5 句话�
 {replies_block}"""
 
 
-def _format_pages(info: VideoInfo, limit: int = 6) -> str:
+def _format_pages(pages: list[str], limit: int = 6) -> str:
     """把分P标题拼成一行——多P视频的 P 名常常直接说明内容（如「实况」「教程」）。
 
     单P视频没什么信息量，直接返回「（单P）」以免浪费 prompt 空间。
+    分P是 B 站概念，其它平台 ``extras`` 里没有这个键，自动落到「（单P）」。
     """
-    pages = [page for page in (getattr(info, "pages", None) or []) if page.part]
-    if len(pages) <= 1:
+    names = [str(page) for page in (pages or []) if str(page).strip()]
+    if len(names) <= 1:
         return "（单P）"
-    shown = " / ".join(short_text(page.part, 20) for page in pages[:limit])
-    if len(pages) > limit:
-        shown += f" / …（共 {len(pages)}P）"
+    shown = " / ".join(short_text(name, 20) for name in names[:limit])
+    if len(names) > limit:
+        shown += f" / …（共 {len(names)}P）"
     return shown
 
 
@@ -78,22 +79,34 @@ PROMPT_WITH_SUBTITLE_TEMPLATE = """你是视频内容概括助手。下面是这
 
 
 def build_prompt(
-    info: VideoInfo,
-    replies: list[str],
+    media: MediaInfo,
+    *,
+    replies: list[str] | None = None,
     tags: list[str] | None = None,
     subtitle_text: str | None = None,
 ) -> tuple[str, str]:
     """返回 (prompt, 总结依据标签)。
 
-    有字幕时走字幕模板——只有它能说出「视频里讲了什么」；没有字幕时走元数据
-    模板，只能推断内容方向。两条路径都要求模型不编造，且用措辞区分事实与推断。
+    入参是跨平台模型：标题 / 作者 / 时长 / 正文来自通用字段，分区、标签、分P名、
+    字幕这些"按平台而定"的输入从 ``extras`` 取。**没填的项自动降级**（标签为「无」、
+    分P为「单P」），所以新增平台不需要改这里的模板。
+
+    有字幕时走字幕模板——只有它能说出「视频里讲了什么」；没有字幕时走元数据模板，
+    只能推断内容方向。两条路径都要求模型不编造，且用措辞区分事实与推断。
     """
+    if replies is None:
+        replies = media.extra("replies") or []
+    if tags is None:
+        tags = media.extra("tags") or []
+    if subtitle_text is None:
+        subtitle_text = media.extra("subtitle_text")
+
     if subtitle_text:
         prompt = PROMPT_WITH_SUBTITLE_TEMPLATE.format(
-            title=info.title or "未知",
-            owner=info.owner or "未知",
-            duration=format_duration(info.duration),
-            tname=info.tname or "未知",
+            title=media.title or "未知",
+            owner=media.author or "未知",
+            duration=format_duration(media.duration),
+            tname=str(media.extra("tname") or "未知"),
             subtitle=subtitle_text,
         )
         return prompt, "基于字幕"
@@ -108,15 +121,15 @@ def build_prompt(
         basis = "基于标题与简介"
 
     prompt = PROMPT_TEMPLATE.format(
-        title=info.title or "未知",
-        owner=info.owner or "未知",
-        duration=format_duration(info.duration),
-        tname=info.tname or "未知",
+        title=media.title or "未知",
+        owner=media.author or "未知",
+        duration=format_duration(media.duration),
+        tname=str(media.extra("tname") or "未知"),
         tags="、".join(tags) if tags else "（无）",
-        pages=_format_pages(info),
-        view=format_count(info.view),
-        like=format_count(info.like),
-        desc=short_text(info.desc, DESC_LIMIT) or "（无简介）",
+        pages=_format_pages(media.extra("pages") or []),
+        view=format_count(media.stat("view")),
+        like=format_count(media.stat("like")),
+        desc=short_text(media.desc, DESC_LIMIT) or "（无简介）",
         replies_block=replies_block,
     )
     return prompt, basis
@@ -126,10 +139,10 @@ async def summarize_video(
     context,
     *,
     umo: str,
-    info: VideoInfo,
-    replies: list[str],
+    media: MediaInfo,
     max_chars: int,
     timeout: int,
+    replies: list[str] | None = None,
     tags: list[str] | None = None,
     subtitle_text: str | None = None,
 ) -> tuple[str | None, str | None]:
@@ -138,7 +151,9 @@ async def summarize_video(
     返回 (总结文本, 依据标签)；任何失败都返回 (None, None)，
     由调用方继续正常发送视频——总结不该成为发视频的前置条件。
     """
-    prompt, basis = build_prompt(info, replies, tags, subtitle_text)
+    prompt, basis = build_prompt(
+        media, replies=replies, tags=tags, subtitle_text=subtitle_text
+    )
 
     try:
         provider_id = await context.get_current_chat_provider_id(umo=umo)
