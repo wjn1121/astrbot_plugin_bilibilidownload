@@ -5,7 +5,7 @@
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.24.2-blue)](https://github.com/AstrBotDevs/AstrBot)
 [![Platform](https://img.shields.io/badge/platform-QQ_(aiocqhttp)-green)](#)
-[![Version](https://img.shields.io/badge/version-0.3-orange)](metadata.yaml)
+[![Version](https://img.shields.io/badge/version-1.0.0-orange)](metadata.yaml)
 [![Stars](https://img.shields.io/github/stars/wjn1121/astrbot_plugin_bilibilidownload?label=stars&color=yellow)](https://github.com/wjn1121/astrbot_plugin_bilibilidownload/stargazers)
 [![Downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcloud.astrbot.app%2Fapi%2Fv1%2Fmarket%2Fplugins.json&query=$%5B%27wjn1121%2Fastrbot_plugin_bilibilidownload%27%5D.download_count&label=downloads&color=green&suffix=%E6%AC%A1&cacheSeconds=3600)](https://cloud.astrbot.app/market)
 [![License](https://img.shields.io/badge/license-MIT-9cf)](LICENSE)
@@ -517,7 +517,7 @@ A：按这几种情况排查：
 
 完整记录见 [CHANGELOG.md](CHANGELOG.md)（AstrBot 插件卡片上「更新日志」弹窗读的也是它）。
 
-### 0.3 (2026-11-02)
+### 1.0.0 (2026-11-02)
 
 - 🖥️ **新增 Web 面板**：左栏按平台拆开（概览 / 哔哩哔哩 / 抖音 / 小红书 / 试解析 / 最近 / 缓存）；试解析不发群，能看到**实际会发出去的那张卡片**
 - 🌐 **新增小红书与抖音**：图集自动下载 + **无水印原图**，两个平台可单独启停
