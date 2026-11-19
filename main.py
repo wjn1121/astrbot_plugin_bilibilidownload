@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,9 +39,13 @@ from . import api
 from .core import platforms
 from .core.bili_api import REPLY_MAX_CHARS
 from .core.card import (
+    clamp_radius,
+    normalize_layout,
+    normalize_theme,
     render_card,
     render_replies_card,
     replies_template_available,
+    sanitize_accent,
     template_available,
     template_path,
 )
@@ -52,6 +57,7 @@ from .core.dispatch import DispatchMixin, ProcessResult
 from .core.downloader import DownloadError, VideoTooLarge, cleanup_old_files, download_video
 from .core.formatting import (
     build_caption,
+    format_duration,
     humanize_age,
     humanize_duration,
     sanitize_filename,
@@ -60,11 +66,26 @@ from .core.formatting import (
 from .core.history import HistoryEntry, HistoryStore
 from .core.link_parser import DOWNLOAD_WORD_REGEX, url_from_card
 from .core.media import CAP_REPLIES, CAP_SUMMARY, MediaInfo, MediaRef
-from .core.platforms import ParseHint, PlatformError
+from .core.platforms import (
+    MediaNotFound,
+    MediaProtected,
+    ParseHint,
+    PlatformError,
+    PlatformUnavailable,
+)
 from .core.stats import RuntimeStats
 from .core.summarizer import summarize_video
 
 DATA_DIR_NAME = "astrbot_plugin_bilibilidownload"
+
+# 临时文件的周期清理间隔（秒）。启动时已同步清过一次，之后按这个间隔在后台跑。
+CLEANUP_INTERVAL_SECONDS = 3600
+# 临时文件保留时长：跨过这个时间的文件视为残留（正常流程在发送后立刻删除）
+CLEANUP_MAX_AGE_HOURS = 24
+
+# 媒体中转链接的有效期（秒）。协议端拉完就不会再请求，10 分钟足够，
+# 又不会让链接长期对外可用。
+FILE_TOKEN_TTL_SECONDS = 600
 
 # 「接收所有消息」的事件类型，用于 QQ 小程序 / JSON 卡片的兜底入口。
 # AstrBot 的 message_str 只拼接 Plain 段，卡片里的链接进不去，@filter.regex 匹配不到。
@@ -86,6 +107,32 @@ platforms.load_builtin()
 # 所有平台触发正则的并集。正则只负责"这条消息有没有可能是媒体链接"，
 # 真正是否处理由各平台 match() 决定——所以宽一点没有副作用。
 _TRIGGER_REGEX = platforms.combined_trigger_regex()
+
+# `/bdl 帮助` 的识别词。只认这几个明确说法，避免把带了 help 字样的链接误判。
+_HELP_HINTS = ("help", "帮助", "用法", "怎么用", "使用说明")
+
+
+def _wants_help(text: str) -> bool:
+    """这次 /bdl 是在问用法，还是给了个链接。"""
+    lowered = (text or "").lower()
+    return any(word in lowered for word in _HELP_HINTS)
+
+
+def _explain_platform_error(exc: PlatformError) -> str:
+    """把平台异常补成「用户能照着做」的一句话。
+
+    ``PlatformError`` 的 ``str()`` 本身就是人话（见 core/platforms/errors.py），
+    但多数只交代了「发生了什么」。这里按类型补上「你能做什么」——
+    群里没人会去翻日志，提示里不带下一步等于没提示。
+    """
+    message = str(exc)
+    if isinstance(exc, PlatformUnavailable):
+        return f"{message}（可在面板「概览 → 平台一览」确认该平台有没有启用）"
+    if isinstance(exc, MediaProtected):
+        return f"{message}（可在面板填入 SESSDATA 提高成功率，或等几分钟再试）"
+    if isinstance(exc, MediaNotFound):
+        return f"{message}（换个链接试试）"
+    return message
 
 
 def _admin_command(name: str, *aliases: str):
@@ -153,6 +200,9 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         # 兜底值必须与 _conf_schema.json 的 default 一致（40）：实测协议端上传群视频
         # 在 41MB 处稳定失败，兜底写成 50 会让老配置悄悄踩回那个坑。
         self.max_video_mb = max(1, self._conf_int("max_video_mb", 40))
+        # 时长上限（秒）：0 = 不限制。体积要取到直链发 HEAD 才知道，时长在解析完
+        # 元数据时就已知，先卡时长能省掉一次「下到一半发现太大」的浪费。
+        self.max_video_seconds = max(0, self._conf_int("max_video_seconds", 0))
         self.request_timeout = max(5, self._conf_int("request_timeout", 20))
         self.max_concurrent = max(1, self._conf_int("max_concurrent", 1))
         self.user_cooldown = max(0, self._conf_int("user_cooldown", 60))
@@ -168,6 +218,8 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         # 面板「最近」保留多少条解析记录；0 = 不记录
         self.history_keep = max(0, self._conf_int("history_keep", 50))
         self.send_ebilibili_link = self._conf_bool("send_ebilibili_link", True)
+        # 媒体中转：填了对外地址才启用，留空表示协议端能直接读到本地文件
+        self.public_base_url = self._conf_str("public_base_url", "").rstrip("/")
         self.reply_limit = max(0, self._conf_int("reply_limit", 10))
         # 卡片里展示给用户看的热评（与 reply_limit「给 AI 参考的条数」相互独立）
         self.show_replies = self._conf_bool("show_replies", True)
@@ -177,6 +229,17 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         self.forward_sender_name = self._conf_str("forward_sender_name", "B站视频解析") or "B站视频解析"
         self.output_image = self._conf_bool("output_image", True)
         self.card_width = max(560, min(1000, self._conf_int("card_width", 760)))
+        # 卡片外观（面板「外观」页可热改）：主题只认 light/dark，强调色必须是 #RRGGBB
+        self.card_theme = normalize_theme(self._conf_str("card_theme", "light"))
+        self.card_accent = sanitize_accent(self._conf_str("card_accent", "#00AEEC"))
+        self.card_brand = self._conf_bool("card_brand", True)
+        self.card_layout = normalize_layout(self._conf_str("card_layout", "standard"))
+        self.card_radius = clamp_radius(self._conf_int("card_radius", 10))
+        self.card_show_cover = self._conf_bool("card_show_cover", True)
+        self.card_show_time = self._conf_bool("card_show_time", True)
+        self.card_show_stats = self._conf_bool("card_show_stats", True)
+        self.card_watermark = self._conf_str("card_watermark", "")
+        self.card_qr = self._conf_bool("card_qr", False)
         # 热评图右上角的二维码（内容 = 视频链接）；生成失败会自动跳过该区域
         self.card_qrcode = self._conf_bool("card_qrcode", True)
         # 字幕增强（L3）：留空 sessdata 时行为与未启用完全一致
@@ -188,7 +251,12 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         # ── 运行时状态 ──────────────────────────────────────
         self._session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
+        # 下载与「取直链」的并发上限。注意它**不覆盖解析**（解析有自己的信号量）：
+        # 两个阶段串行争同一把锁会让 max_concurrent=1 时的排队时间凭空翻倍。
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
+        # 解析（含 AI 总结）的并发上限，与下载分开计数。
+        # 之前只有下载受限，多群同时发链接时解析请求仍然并发打 B 站——412 的成因之一。
+        self._parse_semaphore = asyncio.Semaphore(self.max_concurrent)
         self._cooldown: dict[str, float] = {}
         self._recent: dict[str, RecentVideo] = {}
         # key 是归一化后的媒体标识（见 MediaRef.dedup_key），value 是开始处理的时间戳
@@ -203,6 +271,12 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         self._stats = RuntimeStats()
         self._disabled_sessions: set[str] = set()
 
+        # 临时文件的周期清理任务：只在启动与卸载时清一次的话，接连跑几周的进程
+        # 遇到异常路径（进程被 kill、图集下载中断）留下的文件就一直堆在磁盘上。
+        self._cleanup_task: asyncio.Task | None = None
+        # 媒体中转的 token → (文件路径, 过期时间戳)
+        self._file_tokens: dict[str, tuple[Path, float]] = {}
+
         # 卡片渲染连续失败到阈值后本进程内不再尝试：
         # t2i 服务没配好时，每次渲染都要白等一次超时，会明显拖慢回复。
         self._card_fail_count = 0
@@ -216,7 +290,7 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
             self._tmp_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             logger.warning(f"{LOG_TAG} 无法创建数据目录 {self._tmp_dir}：{exc}")
-        cleanup_old_files(self._tmp_dir, 24)
+        cleanup_old_files(self._tmp_dir, CLEANUP_MAX_AGE_HOURS)
 
         # 面板「最近」页的数据：定长环形记录，落盘在数据目录里（插件升级不丢）
         self.history = HistoryStore(self._data_dir / "history.json", keep=self.history_keep)
@@ -294,7 +368,81 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
     # ──────────────────────────────────────────────── 会话与工具
 
+    # ── 媒体中转（Docker 分离部署） ──────────────────────────────────
+
+    def publish_file(self, path: Path) -> str | None:
+        """把本地文件挂到对外地址上，返回协议端可拉取的 URL。
+
+        为什么需要：协议端和 AstrBot 不在同一文件系统时（典型是 Docker 分离），
+        ``Video.fromFileSystem`` 发出去的是 ``file://`` 路径，协议端读不到就报
+        ``retcode 1200 路径不存在``。这里用带有效期的随机 token 把文件临时暴露出来，
+        让协议端自己下载——比退到第三方直链可靠（直链会过期、也会 403）。
+
+        没配置 ``public_base_url`` 时返回 None，功能自动关闭。
+        """
+        if not self.public_base_url:
+            return None
+        try:
+            token = secrets.token_urlsafe(18)
+            self._file_tokens[token] = (path, time.time() + FILE_TOKEN_TTL_SECONDS)
+            self._prune_file_tokens()
+            return f"{self.public_base_url}/api/plug/{self.plugin_name}/file/{token}"
+        except Exception as exc:  # noqa: BLE001 - 生成失败只是少一种发送方式
+            logger.warning(f"{LOG_TAG} 生成中转链接失败：{type(exc).__name__}: {exc}")
+            return None
+
+    def resolve_file_token(self, token: str) -> Path | None:
+        """校验中转 token（存在、未过期、文件还在），返回路径或 None。"""
+        self._prune_file_tokens()
+        item = self._file_tokens.get(token)
+        if item is None:
+            return None
+        path, expire_at = item
+        if expire_at < time.time() or not path.exists():
+            self._file_tokens.pop(token, None)
+            return None
+        return path
+
+    def _prune_file_tokens(self) -> None:
+        now = time.time()
+        for key in [k for k, (_, exp) in self._file_tokens.items() if exp < now]:
+            self._file_tokens.pop(key, None)
+
+    # ── 临时文件的后台清理 ────────────────────────────────────────────
+
+    def _ensure_cleanup_task(self) -> None:
+        """惰性启动周期清理任务。
+
+        不放在 ``__init__``：那里未必有运行中的事件循环，``create_task`` 会抛
+        RuntimeError。第一次取 session（也就是第一次真正干活）时启动最稳，
+        顺带不必依赖某个特定版本的生命周期钩子是否存在。
+        """
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            return
+        try:
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        except RuntimeError:  # 没有运行中的 loop，留到下一次再启动
+            self._cleanup_task = None
+
+    async def _cleanup_loop(self) -> None:
+        while True:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            try:
+                # 目录遍历是同步 IO，丢到线程里，别在事件循环上卡住消息处理
+                removed = await asyncio.to_thread(
+                    cleanup_old_files, self._tmp_dir, CLEANUP_MAX_AGE_HOURS
+                )
+                if removed:
+                    logger.info(f"{LOG_TAG} 周期清理已删除 {removed} 个残留临时文件")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 清理失败不该让任务退出
+                logger.debug(
+                    f"{LOG_TAG} 周期清理失败（下次再试）：{type(exc).__name__}: {exc}"
+                )
+
     async def _get_session(self) -> aiohttp.ClientSession:
+        self._ensure_cleanup_task()
         if self._session is not None and not self._session.closed:
             return self._session
         async with self._session_lock:
@@ -325,11 +473,25 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
         self.send_video = bool(pick("send_video"))
         self.max_video_mb = max(1, int(pick("max_video_mb")))
+        self.max_video_seconds = max(0, int(pick("max_video_seconds")))
         self.video_send_mode = str(pick("video_send_mode") or "auto")
         self.send_ebilibili_link = bool(pick("send_ebilibili_link"))
+        self.public_base_url = str(pick("public_base_url") or "").strip().rstrip("/")
         self.output_image = bool(pick("output_image"))
         self.card_width = max(560, min(1000, int(pick("card_width"))))
         self.card_qrcode = bool(pick("card_qrcode"))
+        # 外观：这里再兜一次底。面板接口是网络入口，写进 runtime.json 的值
+        # 也可能被手改；非法主题/颜色直接回落默认，别让模板拼出坏 CSS。
+        self.card_theme = normalize_theme(pick("card_theme"))
+        self.card_accent = sanitize_accent(pick("card_accent"))
+        self.card_brand = bool(pick("card_brand"))
+        self.card_layout = normalize_layout(pick("card_layout"))
+        self.card_radius = clamp_radius(pick("card_radius"))
+        self.card_show_cover = bool(pick("card_show_cover"))
+        self.card_show_time = bool(pick("card_show_time"))
+        self.card_show_stats = bool(pick("card_show_stats"))
+        self.card_watermark = str(pick("card_watermark") or "").strip()
+        self.card_qr = bool(pick("card_qr"))
         self.show_replies = bool(pick("show_replies"))
         self.replies_show_count = max(0, int(pick("replies_show_count")))
         self.reply_limit = max(0, int(pick("reply_limit")))
@@ -566,8 +728,24 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
             return None
         return recent
 
+    def _is_relay_pending(self, path: Path) -> bool:
+        """该文件是否还被未过期的中转链接引用（协议端可能正在下载）。"""
+        now = time.time()
+        return any(
+            item_path == path and expire_at > now
+            for item_path, expire_at in self._file_tokens.values()
+        )
+
     def _safe_unlink(self, path: Path | None) -> None:
+        """删除临时文件；文件已不在时静默跳过。
+
+        例外：还被未过期的中转链接引用时不能删——协议端是异步下载的，
+        发送接口返回不代表它已经拉完。
+        """
         if path is None:
+            return
+        if self._is_relay_pending(path):
+            logger.info(f"{LOG_TAG} 「{path.name}」仍被中转链接引用，暂不删除")
             return
         try:
             if path.exists():
@@ -641,6 +819,17 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
     # ──────────────────────────────────────────────── 核心流程
 
     async def _process(self, event: AstrMessageEvent, ref: MediaRef) -> ProcessResult:
+        """在解析并发上限内跑完一次解析。
+
+        解析要打平台接口、还要调模型，是最该限流的一段。它和下载各用一把
+        信号量：串行共用一把的话，``max_concurrent = 1`` 时排队时间会凭空翻倍。
+        """
+        async with self._parse_semaphore:
+            return await self._process_unlocked(event, ref)
+
+    async def _process_unlocked(
+        self, event: AstrMessageEvent, ref: MediaRef
+    ) -> ProcessResult:
         """完成一次「解析 → 总结 → 渲染卡片」。
 
         **这里不下载媒体**：调用方先把卡片发出去，再按需下载发送（见 _handle_ref）。
@@ -691,6 +880,8 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
         web_url = platform.web_url(media) if self.send_ebilibili_link else ""
         result = ProcessResult(info=media, page=media.page, link=link, web_url=web_url)
+        result.summary = summary or ""
+        result.summary_basis = basis or ""
         result.caption = build_caption(
             title=media.title or "视频",
             owner=media.author,
@@ -702,7 +893,6 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
             web_url=web_url or None,
             # 此刻还没下载，不能写「视频已附在下方」
             video_attached=False,
-            oversized_mb=None,
             download_hint=(
                 "🎬 视频正在下载，稍后发送…"
                 if self.send_video
@@ -737,20 +927,33 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
     async def _download(
         self, media: MediaInfo
-    ) -> tuple[Path | None, float | None, str | None]:
+    ) -> tuple[Path | None, str | None, str | None]:
         """取直链并（按需）下载。
 
-        返回 (本地文件, 超限体积MB, 直链)。三种失败语义：
-        - 超限：返回真实体积 + 直链置空，避免绕过上限把大文件发出去；
+        返回 (本地文件, 直链, 未发送文件的原因)。三种失败语义：
+        - 超限（体积或时长）：原因字符串带真实数值 + 直链置空，避免绕过上限；
         - 下载失败：仍返回直链，让协议端自己试一次（它的网络可能更顺）；
         - 取直链失败：全部为空。
 
         「怎么取直链」由平台实现：B 站要过 ebilibili 三道降级，抖音/小红书
-        解析完就带着 CDN 直链。这里只负责下载、体积上限与临时文件。
+        解析完就带着 CDN 直链。这里只负责下载、体积/时长上限与临时文件。
         """
         platform = await self._platform(media.platform)
         if platform is None:
             return None, None, None
+
+        # 时长上限：解析阶段就已知时长，先卡掉比「下到一半发现太大」省事得多
+        if (
+            self.max_video_seconds > 0
+            and media.duration
+            and media.duration > self.max_video_seconds
+        ):
+            actual = format_duration(media.duration)
+            limit_text = format_duration(self.max_video_seconds)
+            logger.info(
+                f"{LOG_TAG} {media.media_id} 时长 {actual} 超过上限 {limit_text}，改为发送链接"
+            )
+            return None, None, f"视频时长 {actual}，超过时长上限 {limit_text}"
 
         session = await self._get_session()
         max_bytes = self.max_video_mb * 1024 * 1024
@@ -782,7 +985,7 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                 logger.info(
                     f"{LOG_TAG} 直链模式，跳过下载：{video.filename or media.media_id}"
                 )
-                return None, None, video.url
+                return None, video.url, None
 
             filename = sanitize_filename(video.filename or f"{media.title}.mp4")
             if not filename.lower().endswith(".mp4"):
@@ -839,19 +1042,24 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                     f"{LOG_TAG} {media.media_id} 体积 {exc.size_bytes / 1024 / 1024:.1f}MB "
                     f"超过上限 {self.max_video_mb}MB，改为发送链接"
                 )
-                return None, exc.size_bytes / 1024 / 1024, None
+                return (
+                    None,
+                    None,
+                    f"视频约 {exc.size_bytes / 1024 / 1024:.0f} MB，"
+                    f"超过体积上限 {self.max_video_mb} MB",
+                )
             except DownloadError as exc:
                 logger.warning(f"{LOG_TAG} {media.media_id} 下载失败：{exc}，改为尝试直链")
                 self._stats.download_fail += 1
                 self._stats.note_error("下载", f"{media.media_id}: {exc}")
-                return None, None, video.url
+                return None, video.url, None
 
             self._stats.download_ok += 1
             logger.info(
                 f"{LOG_TAG} 下载完成 {path.name}（{path.stat().st_size / 1024 / 1024:.1f}MB，"
                 f"耗时 {time.time() - started:.1f}s）"
             )
-            return path, None, video.url
+            return path, video.url, None
 
     # ──────────────────────────────────────────────── 事件入口
 
@@ -925,9 +1133,9 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                 await self._dispatch_messages(event, self._collect_cards(result))
 
             direct_url: str | None = None
-            oversized_mb: float | None = None
+            oversize_note: str | None = None
             if self.send_video and result.info is not None:
-                video_path, oversized_mb, direct_url = await self._download(result.info)
+                video_path, direct_url, oversize_note = await self._download(result.info)
 
             # 图集：与视频并行存在（图文笔记没有视频，视频笔记也可能带图封面）
             if (
@@ -945,7 +1153,7 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                     result,
                     video_path=video_path,
                     direct_url=direct_url,
-                    oversized_mb=oversized_mb,
+                    oversize_note=oversize_note,
                 )
             else:
                 # 卡片上面已经发过了，这里只补视频（或超限提示）
@@ -953,7 +1161,7 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                     result,
                     video_path=video_path,
                     direct_url=direct_url,
-                    oversized_mb=oversized_mb,
+                    oversize_note=oversize_note,
                 )
             await self._dispatch_messages(event, outgoing)
         except PlatformError as exc:
@@ -966,7 +1174,7 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                 event, ref, ok=False, started=started, detail=str(exc)
             )
             logger.warning(f"{LOG_TAG} 解析失败：{exc}（detail: {exc.detail}）")
-            await self._send_text(event, f"❌ 解析失败：{exc}")
+            await self._send_text(event, f"❌ 解析失败：{_explain_platform_error(exc)}")
         except Exception as exc:  # noqa: BLE001 - 单条消息出错不该影响插件整体
             self._busy.pop(ref.dedup_key, None)
             self._stats.parse_fail += 1
@@ -1016,6 +1224,8 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                 ms=int((time.time() - started) * 1000),
                 card_ok=bool(result is not None and result.card_url),
                 umo=event.unified_msg_origin,
+                summary=short_text(result.summary if result else "", 240),
+                summary_basis=short_text(result.summary_basis if result else "", 60),
             )
         )
 
@@ -1038,6 +1248,10 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
             return
         event.stop_event()
 
+        if _wants_help(self._message_text(event)):
+            await self._send_help(event)
+            return
+
         hit = platforms.match(self._message_text(event), enabled=self.enabled_platforms)
         if hit is not None:
             ref = hit[1]
@@ -1049,22 +1263,22 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
                 # /bdl 的语义就是「要视频」，所以直接下载，再由 dispatch 统一发送
                 direct_url: str | None = None
-                oversized_mb: float | None = None
+                oversize_note: str | None = None
                 if result.info is not None:
-                    video_path, oversized_mb, direct_url = await self._download(result.info)
+                    video_path, direct_url, oversize_note = await self._download(result.info)
 
                 outgoing = self._collect_messages(
                     result,
                     video_path=video_path,
                     direct_url=direct_url,
-                    oversized_mb=oversized_mb,
+                    oversize_note=oversize_note,
                 )
                 await self._dispatch_messages(event, outgoing)
             except PlatformError as exc:
                 self._busy.pop(ref.dedup_key, None)
                 self._stats.parse_fail += 1
                 self._stats.note_error("解析", exc.detail or str(exc))
-                await self._send_text(event, f"❌ 解析失败：{exc}")
+                await self._send_text(event, f"❌ 解析失败：{_explain_platform_error(exc)}")
             except Exception as exc:  # noqa: BLE001
                 self._busy.pop(ref.dedup_key, None)
                 self._stats.parse_fail += 1
@@ -1088,6 +1302,18 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
             return
 
         await self._download_and_reply(event, recent.info)
+
+    async def _send_help(self, event: AstrMessageEvent) -> None:
+        """`/bdl 帮助`：群里唯一能看到命令清单的地方（面板得另外打开）。"""
+        lines = [
+            "📖 可用操作",
+            "• 直接发链接：B站 / 小红书 / 抖音 都会自动解析",
+            "• 回复「下载」或发送 /bdl：下载本会话刚解析过的视频",
+            "• /bdl <链接>：解析并下载指定视频",
+            "",
+            "管理员：/bdlstatus 看状态 · /bdlclear 清缓存 · /bdloff 关本群自动解析 · /bdlon 开",
+        ]
+        await self._send_text(event, "\n".join(lines))
 
     async def _download_gallery(
         self, info: MediaInfo, limit: int
@@ -1177,7 +1403,7 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
         path: Path | None = None
         try:
-            path, oversized_mb, direct_url = await self._download(info)
+            path, direct_url, oversize_note = await self._download(info)
             has_video = path is not None or bool(direct_url)
 
             if has_video:
@@ -1199,14 +1425,11 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                     await self._send_text(
                         event, f"{tip}：{web_url}" if web_url else f"{tip}。"
                     )
-            elif oversized_mb is not None:
-                tip = (
-                    f"⚠️ 视频约 {oversized_mb:.0f} MB，超过体积上限 "
-                    f"{self.max_video_mb} MB，未发送文件。"
-                )
+            elif oversize_note:
+                tip = f"⚠️ {oversize_note}，未发送文件。"
                 await self._send_text(
                     event,
-                    f"{tip}\n可在面板调大「视频体积上限」，或直接访问：{web_url}"
+                    f"{tip}\n可在面板调整对应上限，或直接访问：{web_url}"
                     if web_url
                     else tip,
                 )
@@ -1397,9 +1620,15 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
     # ──────────────────────────────────────────────── 生命周期
 
     async def terminate(self):
+        # 先停掉两个后台任务：扫码轮询拿着 session，清理任务会 sleep 一小时，
+        # 不取消的话插件重载后它们还挂在旧实例上（扫码那条会拿着已关闭的 session 报错）。
+        self.bili_login.cancel("插件已卸载")
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
         # 平台实例里持有缓存与 session 引用，先放掉再关 session
         self._platforms.clear()
         if self._session is not None and not self._session.closed:
             await self._session.close()
-        cleanup_old_files(self._tmp_dir, 24)
+        cleanup_old_files(self._tmp_dir, CLEANUP_MAX_AGE_HOURS)
         logger.info(f"{LOG_TAG} 插件已卸载")

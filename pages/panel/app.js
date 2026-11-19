@@ -14,7 +14,7 @@
 const $ = (id) => document.getElementById(id);
 const Bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
 
-const PLATFORM_LABEL = { bilibili: "哔哩哔哩", douyin: "抖音", xiaohongshu: "小红书" };
+const PLATFORM_LABEL = { bilibili: "哔哩哔哩", douyin: "抖音", xiaohongshu: "小红书", heybox: "小黑盒" };
 const CAP_LABEL = {
   video: "视频",
   images: "图集",
@@ -28,6 +28,9 @@ const PLATFORM_PAGES = {
   bilibili: { prefix: "bili", enableId: "biliEnabled" },
   douyin: { prefix: "dy", enableId: "dyEnabled" },
   xiaohongshu: { prefix: "xhs", enableId: "xhsEnabled" },
+  heybox: { prefix: "hb", enableId: "hbEnabled" },
+  kuaishou: { prefix: "ks", enableId: "ksEnabled" },
+  weibo: { prefix: "wb", enableId: "wbEnabled" },
 };
 
 let lastStatus = null;
@@ -292,11 +295,13 @@ async function saveSettings(name, values) {
 }
 
 async function togglePlatform(name, enabled) {
+  // 顺序取 PLATFORM_PAGES 的键：这里以前写死了三个平台，
+  // 新加的平台会被 filter 掉，表现为「点启用提示保存失败 / 刷新后仍未启用」
+  const order = Object.keys(PLATFORM_PAGES);
   const current = (lastSettings?.platforms || (lastStatus?.platforms || []).filter((r) => r.enabled).map((r) => r.name)).slice();
-  const next = new Set(current.length ? current : ["bilibili", "douyin", "xiaohongshu"]);
+  const next = new Set(current.length ? current : order);
   if (enabled) next.add(name);
   else next.delete(name);
-  const order = ["bilibili", "douyin", "xiaohongshu"];
   await saveSettings(name, { enabled_platforms: order.filter((item) => next.has(item)) });
 }
 
@@ -346,6 +351,7 @@ function renderCredentials(data) {
       el.className = "badge";
     }
   };
+  badge("heybox", "cookie", "hbCookieBadge");
   badge("bilibili", "sessdata", "biliLoginBadge");
   badge("douyin", "api_url", "dyApiBadge");
   badge("xiaohongshu", "cookie", "xhsCookieBadge");
@@ -562,6 +568,9 @@ function renderHistory(entries, total) {
         <span class="hist-result">${row.ok ? (row.card_ok ? "出图" : "文本") : esc(row.detail || "失败")}</span>
         <span class="hist-ms">${row.ms ? row.ms + "ms" : ""}</span>
         <span class="hist-time">${esc(time)}</span>
+        ${row.summary
+          ? `<span class="hist-summary" title="${esc(row.summary)}">${esc(row.summary)}</span>`
+          : ""}
       </div>`;
     })
     .join("");
@@ -606,6 +615,220 @@ async function clearCache() {
   }
 }
 
+/* ── 卡片外观（实时预览） ───────────────────────────────── */
+
+const LOOK_DEFAULTS = {
+  theme: "light",
+  accent: "#00AEEC",
+  layout: "standard",
+  width: 760,
+  radius: 10,
+  watermark: "",
+  brand: true,
+  cover: true,
+  time: true,
+  stats: true,
+  qr: false,
+};
+
+let lookState = { ...LOOK_DEFAULTS };
+let lookTimer = null;
+
+function normalizeAccent(value) {
+  const text = String(value || "").trim();
+  // 统一小写：input[type=color] 会把值规范化成小写，两边保持一致才不会来回跳
+  return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : LOOK_DEFAULTS.accent;
+}
+
+function setSeg(containerId, dataKey, value) {
+  document.querySelectorAll(`#${containerId} button`).forEach((node) => {
+    node.classList.toggle("on", node.dataset[dataKey] === value);
+  });
+}
+
+function syncLookControls() {
+  setSeg("lookTheme", "theme", lookState.theme);
+  setSeg("lookLayout", "layout", lookState.layout);
+  $("lookAccent").value = lookState.accent;
+  $("lookAccentText").value = lookState.accent;
+  $("lookWidth").value = String(lookState.width);
+  $("lookWidthValue").textContent = String(lookState.width);
+  $("lookRadius").value = String(lookState.radius);
+  $("lookRadiusValue").textContent = String(lookState.radius);
+  $("lookWatermark").value = lookState.watermark;
+  $("lookBrand").checked = lookState.brand;
+  $("lookCover").checked = lookState.cover;
+  $("lookTime").checked = lookState.time;
+  $("lookStats").checked = lookState.stats;
+  $("lookQr").checked = lookState.qr;
+}
+
+/** 从 /settings 的回显值恢复控件（首次加载、保存之后都会走这里） */
+function syncLookFromSettings() {
+  if (!lastSettings) return;
+  const byKey = {};
+  (lastSettings.items || []).forEach((item) => { byKey[item.key] = item.value; });
+  const radius = Number(byKey.card_radius);
+  lookState = {
+    theme: byKey.card_theme === "dark" ? "dark" : "light",
+    accent: normalizeAccent(byKey.card_accent),
+    layout: byKey.card_layout === "compact" ? "compact" : "standard",
+    width: Number(byKey.card_width) || LOOK_DEFAULTS.width,
+    radius: Number.isFinite(radius) ? radius : LOOK_DEFAULTS.radius,
+    watermark: String(byKey.card_watermark || ""),
+    brand: byKey.card_brand !== false,
+    cover: byKey.card_show_cover !== false,
+    time: byKey.card_show_time !== false,
+    stats: byKey.card_show_stats !== false,
+    qr: byKey.card_qr === true,
+  };
+  syncLookControls();
+}
+
+function scheduleLookPreview() {
+  clearTimeout(lookTimer);
+  lookTimer = setTimeout(refreshLookPreview, 180);
+}
+
+function updateLookStatus(previewWidth) {
+  const themeLabel = lookState.theme === "dark" ? "深色" : "浅色";
+  const layoutLabel = lookState.layout === "compact" ? "紧凑" : "标准";
+  let text = `主题 ${themeLabel} · 版式 ${layoutLabel} · 实际发送 ${lookState.width}px · 圆角 ${lookState.radius}px`;
+  // 预览按容器宽度排版，比设置值窄是正常的，写清楚免得以为宽度滑块没生效
+  if (previewWidth && Math.abs(previewWidth - lookState.width) > 2) {
+    text += ` · 预览按 ${previewWidth}px 排版`;
+  }
+  $("lookStatus").textContent = text;
+}
+
+async function refreshLookPreview() {
+  const host = $("lookPreviewHost");
+  const wrap = $("lookFrameWrap");
+  if (!host || !wrap) return;
+
+  $("lookStatus").textContent = "渲染中…";
+  try {
+    // 按预览区实际宽度排版：卡片本身是响应式的（--u 随宽度走），
+    // 不缩放、不用 iframe，所以不会有内部滚动条，也不用测量高度
+    const previewWidth = Math.max(280, Math.floor(wrap.clientWidth - 24));
+    const payload = await Bridge.apiGet("preview/card", {
+      theme: lookState.theme,
+      accent: lookState.accent,
+      layout: lookState.layout,
+      width: previewWidth,
+      radius: lookState.radius,
+      watermark: lookState.watermark,
+      brand: lookState.brand ? 1 : 0,
+      cover: lookState.cover ? 1 : 0,
+      time: lookState.time ? 1 : 0,
+      stats: lookState.stats ? 1 : 0,
+      qr: lookState.qr ? 1 : 0,
+      _: Date.now(),
+    });
+    const data = unwrap(payload) || {};
+    if (!data.css || !data.body) {
+      throw new Error(payload?.message || data.message || "预览失败");
+    }
+
+    const shadow = host.shadowRoot || host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<style>${data.css}</style><div class="card-root">${data.body}</div>`;
+    // 字号基准跟着预览宽度走：760 宽对应 20px，窄列等比缩，最低 13px
+    const unit = Math.max(13, Math.min(20, previewWidth * 0.026));
+    host.style.setProperty("--u", `${unit.toFixed(2)}px`);
+    updateLookStatus(previewWidth);
+  } catch (error) {
+    $("lookStatus").textContent = `预览失败：${error.message || error}`;
+  }
+}
+
+async function saveLook() {
+  await saveSettings("appearance", {
+    card_theme: lookState.theme,
+    card_accent: lookState.accent,
+    card_layout: lookState.layout,
+    card_width: lookState.width,
+    card_radius: lookState.radius,
+    card_watermark: lookState.watermark,
+    card_brand: lookState.brand,
+    card_show_cover: lookState.cover,
+    card_show_time: lookState.time,
+    card_show_stats: lookState.stats,
+    card_qr: lookState.qr,
+  });
+}
+
+function bindAppearance() {
+  document.querySelectorAll("#lookTheme button").forEach((node) => {
+    node.addEventListener("click", () => {
+      lookState.theme = node.dataset.theme === "dark" ? "dark" : "light";
+      setSeg("lookTheme", "theme", lookState.theme);
+      scheduleLookPreview();
+    });
+  });
+
+  document.querySelectorAll("#lookLayout button").forEach((node) => {
+    node.addEventListener("click", () => {
+      lookState.layout = node.dataset.layout === "compact" ? "compact" : "standard";
+      setSeg("lookLayout", "layout", lookState.layout);
+      scheduleLookPreview();
+    });
+  });
+
+  $("lookAccent").addEventListener("input", () => {
+    lookState.accent = normalizeAccent($("lookAccent").value);
+    $("lookAccentText").value = lookState.accent;
+    scheduleLookPreview();
+  });
+
+  $("lookAccentText").addEventListener("input", () => {
+    const raw = $("lookAccentText").value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+      lookState.accent = raw.toLowerCase();
+      $("lookAccent").value = lookState.accent;
+      scheduleLookPreview();
+    }
+  });
+
+  $("lookWidth").addEventListener("input", () => {
+    lookState.width = Number($("lookWidth").value) || LOOK_DEFAULTS.width;
+    $("lookWidthValue").textContent = String(lookState.width);
+    scheduleLookPreview();
+  });
+
+  $("lookRadius").addEventListener("input", () => {
+    lookState.radius = Number($("lookRadius").value);
+    $("lookRadiusValue").textContent = String(lookState.radius);
+    scheduleLookPreview();
+  });
+
+  $("lookWatermark").addEventListener("input", () => {
+    lookState.watermark = $("lookWatermark").value.trim();
+    scheduleLookPreview();
+  });
+
+  [
+    ["lookBrand", "brand"],
+    ["lookCover", "cover"],
+    ["lookTime", "time"],
+    ["lookStats", "stats"],
+    ["lookQr", "qr"],
+  ].forEach(([id, key]) => {
+    $(id).addEventListener("change", () => {
+      lookState[key] = $(id).checked;
+      scheduleLookPreview();
+    });
+  });
+
+  $("lookSave").addEventListener("click", saveLook);
+  $("lookRefresh").addEventListener("click", refreshLookPreview);
+
+  // 宽度变了要重新排版（预览按容器宽度渲染，不是缩放），用同一个 debounce
+  window.addEventListener("resize", () => {
+    const pane = document.querySelector('[data-pane="appearance"]');
+    if (pane && pane.classList.contains("on")) scheduleLookPreview();
+  });
+}
+
 /* ── 加载 ───────────────────────────────────────────────── */
 
 async function loadStatus() {
@@ -627,6 +850,7 @@ async function loadSettings() {
     const payload = await Bridge.apiGet("settings", {});
     lastSettings = unwrap(payload);
     Object.keys(PLATFORM_PAGES).forEach(renderTune);
+    syncLookFromSettings();
   } catch (error) {
     toast(`调整项加载失败：${error}`);
   }
@@ -652,6 +876,10 @@ function switchTab(tab) {
   });
   if (tab === "history") loadHistory();
   if (tab === "cache") loadCache();
+  if (tab === "appearance") {
+    // 先按最新的 /settings 对齐控件，再渲染一次预览（首次进入时 iframe 还是空的）
+    loadSettings().then(refreshLookPreview);
+  }
   if (PLATFORM_PAGES[tab]) {
     loadCredentials();
     loadSettings();
@@ -682,6 +910,13 @@ function bindPlatformActions() {
     const value = $("biliSessdata").value.trim();
     if (await saveCredential("bilibili", "sessdata", value)) {
       $("biliSessdata").value = "";
+    }
+  });
+
+  $("hbCookieSave").addEventListener("click", async () => {
+    const value = $("hbCookie").value.trim();
+    if (await saveCredential("heybox", "cookie", value)) {
+      $("hbCookie").value = "";
     }
   });
 
@@ -718,6 +953,7 @@ function boot() {
   }
 
   bindPlatformActions();
+  bindAppearance();
 
   $("refresh").addEventListener("click", async () => {
     await loadStatus();

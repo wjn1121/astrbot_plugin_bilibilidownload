@@ -48,6 +48,14 @@ CREDENTIAL_FIELDS: dict[str, dict[str, dict[str, str]]] = {
             "placeholder": "web_session=xxx; a1=xxx; ...",
         }
     },
+    "heybox": {
+        "cookie": {
+            "label": "Cookie",
+            "hint": "整段 Cookie（浏览器登录小黑盒后 F12 复制）。机房 IP 直接请求会被人机验证拦下，填了才能稳定解析。",
+            "secret": "1",
+            "placeholder": "x_xhh_tokenid=xxx; ...",
+        }
+    },
     "douyin": {
         "api_url": {
             "label": "第三方解析接口",

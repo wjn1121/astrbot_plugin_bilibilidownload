@@ -20,10 +20,12 @@ from ..cache import TtlCache
 from ..ebilibili import EbilibiliClient
 from ..link_parser import TRIGGER_REGEX, aid_from_url, bvid_from_url, find_ref
 from ..media import (
+    CAP_IMAGES,
     CAP_REPLIES,
     CAP_SUBTITLE,
     CAP_SUMMARY,
     CAP_VIDEO,
+    KIND_IMAGE,
     MediaInfo,
     MediaItem,
     MediaRef,
@@ -33,6 +35,24 @@ from .base import BasePlatform, ParseHint
 from .errors import MediaNotFound, MediaProtected, PlatformError
 
 LOG_TAG = "[bilibili-download]"
+
+#: 动态接口要 PC UA；用移动 UA 会返回「-352 风控校验失败」
+UA_PC = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
+
+
+def _strip_image_suffix(url: str) -> str:
+    """B 站图片常带 ``@480w_270h.webp`` 之类的裁剪参数，去掉才是原图。
+
+    动态接口给的是 ``http://i0.hdslb.com/...``，统一升成 https——
+    QQ 里 http 图在部分客户端不显示，下载也可能被中间设备拦。
+    """
+    if not url:
+        return ""
+    cleaned = url.split("@", 1)[0]
+    return cleaned.replace("http://", "https://", 1)
 
 # 视频信息 / 热评 / 标签 / 字幕的进程内缓存 TTL（秒）。
 # 播放量这类统计会变，TTL 不宜过长；同一个视频常被多个群先后发出，缓存能省重复请求。
@@ -44,7 +64,7 @@ REPLY_CACHE_TTL = 300
 class BilibiliPlatform(BasePlatform):
     name = "bilibili"
     display = "哔哩哔哩"
-    capabilities = frozenset({CAP_VIDEO, CAP_SUMMARY, CAP_SUBTITLE, CAP_REPLIES})
+    capabilities = frozenset({CAP_VIDEO, CAP_IMAGES, CAP_SUMMARY, CAP_SUBTITLE, CAP_REPLIES})
     # 精确的触发正则（FV/av/完整链接/短链），比通用 URL 正则省掉大量无关消息
     trigger_pattern = TRIGGER_REGEX
 
@@ -104,6 +124,15 @@ class BilibiliPlatform(BasePlatform):
         if ref is None:
             return None
 
+        if ref.dynamic_id:
+            # 动态/图文：不是视频，media_id 就是动态 id
+            return MediaRef(
+                platform=cls.name,
+                raw=ref.raw,
+                media_id=ref.dynamic_id,
+                extra={"bili_ref": ref, "dynamic_id": ref.dynamic_id},
+            )
+
         # 裸 BV/av 号直接给出 media_id；短链要等一次跳转才知道
         media_id = ref.bvid or (f"av{ref.aid}" if ref.aid else None)
         return MediaRef(
@@ -119,6 +148,10 @@ class BilibiliPlatform(BasePlatform):
 
     async def parse(self, ref: MediaRef, *, hint: ParseHint | None = None) -> MediaInfo:
         hint = hint or ParseHint()
+        dynamic_id = ref.extra.get("dynamic_id")
+        if dynamic_id:
+            return await self._parse_dynamic(str(dynamic_id), ref)
+
         api = self.api
         bili_ref = ref.extra.get("bili_ref")
 
@@ -142,6 +175,73 @@ class BilibiliPlatform(BasePlatform):
         media.extras["subtitle_text"] = subtitle_text
         media.extras["subtitle_basis"] = "基于字幕" if subtitle_text else ""
         return media
+
+    async def _parse_dynamic(self, dynamic_id: str, ref: MediaRef) -> MediaInfo:
+        """解析动态/opus 图文（``t.bilibili.com/<id>``）。
+
+        只处理带图动态；纯文字、转发、视频动态会明确报「没有图片」——
+        这类内容没有可下载的媒体，硬出卡片对用户没意义。
+        """
+        url = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
+        headers = {
+            "User-Agent": UA_PC,
+            "Referer": f"https://t.bilibili.com/{dynamic_id}",
+            "Accept": "application/json, text/plain, */*",
+        }
+        try:
+            async with self.session.get(
+                url, params={"id": dynamic_id}, headers=headers, timeout=self.timeout
+            ) as resp:
+                data = await resp.json(content_type=None)
+        except Exception as exc:  # noqa: BLE001
+            raise PlatformError(f"B 站动态请求失败：{type(exc).__name__}: {exc}") from exc
+
+        code = data.get("code") if isinstance(data, dict) else None
+        if code != 0:
+            raise PlatformError(
+                f"B 站动态接口返回 {code}：{(data or {}).get('message') or '未知错误'}"
+            )
+
+        item = ((data.get("data") or {}).get("item")) or {}
+        modules = item.get("modules") or {}
+        author = modules.get("module_author") or {}
+        dynamic = modules.get("module_dynamic") or {}
+        desc = str((dynamic.get("desc") or {}).get("text") or "").strip()
+        major = dynamic.get("major") or {}
+        draw = major.get("draw") or {}
+
+        images = [
+            _strip_image_suffix(str(entry.get("src")))
+            for entry in (draw.get("items") or [])
+            if isinstance(entry, dict) and entry.get("src")
+        ]
+        if not images:
+            raise MediaNotFound("这条动态没有图片（纯文字、转发或视频动态暂不支持）")
+
+        stat = modules.get("module_stat") or {}
+        return MediaInfo(
+            platform=self.name,
+            media_id=dynamic_id,
+            source_url=ref.raw,
+            web_url=f"https://t.bilibili.com/{dynamic_id}",
+            title=desc[:40] or "B 站动态",
+            author=str(author.get("name") or ""),
+            author_id=str(author.get("mid") or ""),
+            author_avatar=str(author.get("face") or ""),
+            cover=images[0],
+            pubdate=int(author.get("pub_ts") or 0),
+            desc=desc,
+            items=[
+                MediaItem(kind=KIND_IMAGE, url=image, referer="https://t.bilibili.com/")
+                for image in images[:9]
+            ],
+            extras={"images": images, "dynamic_type": str(item.get("type") or "")},
+            stats={
+                "like": int((stat.get("like") or {}).get("count") or 0),
+                "reply": int((stat.get("comment") or {}).get("count") or 0),
+                "share": int((stat.get("forward") or {}).get("count") or 0),
+            },
+        )
 
     async def _normalize(
         self, api: BiliApi, ref: MediaRef, bili_ref

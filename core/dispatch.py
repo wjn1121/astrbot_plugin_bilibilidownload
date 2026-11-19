@@ -43,11 +43,13 @@ class ProcessResult:
     web_url: str = ""  # 下载失败时兜底给用户的网页地址（由平台提供）
     video_path: Path | None = None  # 已下载到本地的视频（url 模式为 None）
     direct_url: str | None = None  # 直链，供协议端自行拉取
-    oversized_mb: float | None = None  # 超过体积上限时的真实体积
     # 图集的本地文件（与 info.image_items() 顺序一一对应，下载失败的为 None）。
     # 为什么要落盘：直接发 URL 时 QQ 要自己回源拉图，遇到防盗链/慢 CDN 就是裂图；
     # 下载到本地再发可以复用同一个下载器（超时、并发、体积上限都一致）。
     gallery_paths: list[Path | None] = field(default_factory=list)
+    # AI 总结与依据：面板「最近」要展示，否则回看历史只知道解析成功、不知道说了啥
+    summary: str = ""
+    summary_basis: str = ""
 
     @property
     def has_video(self) -> bool:
@@ -92,36 +94,49 @@ class DispatchMixin:
 
         必须 await 到发送结束再返回：调用方依赖这个时机来删除临时文件。
         视频单独作为一条消息发送（不与长文本合并），避免被包装成合并转发。
-        """
-        attempts: list[tuple[str, Callable[[], object]]] = []
-        if self.video_send_mode in ("auto", "file") and video_path is not None:
-            attempts.append(
-                ("本地文件", lambda: Comp.Video.fromFileSystem(path=str(video_path)))
-            )
-        if self.video_send_mode in ("auto", "url") and direct_url:
-            attempts.append(("直链", lambda: Comp.Video.fromURL(url=direct_url)))
 
-        for name, factory in attempts:
+        中转链接是「本地文件失败之后」才生成的：一是少造无用 token，
+        二是只有真的要用它时，才需要让调用方保留文件等协议端来拉。
+        """
+
+        async def _try(name: str, factory: Callable[[], object]) -> bool:
             try:
                 component = factory()
             except Exception as exc:  # noqa: BLE001 - 例如 fromURL 收到非法 URL
                 logger.warning(f"{LOG_TAG} 「{name}」方式构造视频组件失败：{exc}")
-                continue
-
+                return False
             try:
                 await event.send(event.chain_result([component]))
             except Exception as exc:  # noqa: BLE001 - retcode 1200「路径不存在」等
                 logger.warning(
                     f"{LOG_TAG} 「{name}」方式发送视频失败：{type(exc).__name__}: {exc}"
                 )
-                continue
-
+                return False
             logger.info(f"{LOG_TAG} 视频已通过「{name}」方式发送")
             return True
 
+        if self.video_send_mode in ("auto", "file") and video_path is not None:
+            if await _try(
+                "本地文件", lambda: Comp.Video.fromFileSystem(path=str(video_path))
+            ):
+                return True
+            # 协议端与 AstrBot 不在同一文件系统时（Docker 分离），file:// 会报
+            # retcode 1200；挂个带 token 的临时链接让它自己来拉。
+            # 排在直链前面：直链是第三方站点的，可能过期或 403，中转发的就是刚下好的文件。
+            relay_url = self.publish_file(video_path)
+            if relay_url and await _try(
+                "中转", lambda url=relay_url: Comp.Video.fromURL(url=url)
+            ):
+                return True
+
+        if self.video_send_mode in ("auto", "url") and direct_url:
+            if await _try("直链", lambda: Comp.Video.fromURL(url=direct_url)):
+                return True
+
         logger.error(
-            f"{LOG_TAG} 视频发送失败。若协议端与 AstrBot 不在同一文件系统，"
-            f"请把「视频发送方式」设为 url，或检查协议端日志"
+            f"{LOG_TAG} 视频发送失败。若协议端与 AstrBot 不在同一文件系统"
+            f"（Docker 分离部署），请在面板填「AstrBot 对外地址」启用媒体中转，"
+            f"或把发送方式设为 url"
         )
         return False
 
@@ -190,7 +205,7 @@ class DispatchMixin:
         *,
         video_path: Path | None = None,
         direct_url: str | None = None,
-        oversized_mb: float | None = None,
+        oversize_note: str | None = None,
     ) -> list[OutgoingMessage]:
         """视频 / 图集 / 「超过体积上限」提示对应的消息；没有就返回空列表。
 
@@ -215,10 +230,10 @@ class DispatchMixin:
             )
             if gallery:
                 return gallery
-        if oversized_mb is not None:
+        if oversize_note:
             return [
                 OutgoingMessage(
-                    kind="text", payload=self._oversized_tip(result, oversized_mb)
+                    kind="text", payload=self._oversize_tip(result, oversize_note)
                 )
             ]
         return []
@@ -229,7 +244,7 @@ class DispatchMixin:
         *,
         video_path: Path | None = None,
         direct_url: str | None = None,
-        oversized_mb: float | None = None,
+        oversize_note: str | None = None,
     ) -> list[OutgoingMessage]:
         """把一次解析的结果整理成待发送的消息列表（顺序即发送顺序）。
 
@@ -239,7 +254,7 @@ class DispatchMixin:
             result,
             video_path=video_path,
             direct_url=direct_url,
-            oversized_mb=oversized_mb,
+            oversize_note=oversize_note,
         )
 
     def _video_fallback(self, result: ProcessResult) -> str:
@@ -258,13 +273,15 @@ class DispatchMixin:
                 lines.append(f"可自行下载：{result.web_url}")
         return "\n".join(lines)
 
-    def _oversized_tip(self, result: ProcessResult, oversized_mb: float) -> str:
-        """视频超过体积上限时的提示（尽量附上可用的下载页链接）。"""
-        tip = (
-            f"⚠️ 视频约 {oversized_mb:.0f} MB，超过体积上限 {self.max_video_mb} MB，未发送文件。"
-        )
+    def _oversize_tip(self, result: ProcessResult, note: str) -> str:
+        """没发文件的原因（体积或时长超限），尽量附上可用的下载页链接。
+
+        ``note`` 由 ``_download`` 生成，已经带着真实数值（「约 52 MB，超过体积上限
+        40 MB」/「时长 32 分，超过时长上限 20 分」），这里只补一句去哪调。
+        """
+        tip = f"⚠️ {note}，未发送文件。"
         if result.info is not None and self.send_ebilibili_link and result.web_url:
-            tip += f"\n可在面板调大「视频体积上限」，或直接访问：{result.web_url}"
+            tip += f"\n可在面板调整对应上限，或直接访问：{result.web_url}"
         return tip
 
     async def _dispatch_messages(

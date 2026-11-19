@@ -16,8 +16,8 @@
   "enabled_platforms": {
     "description": "启用的解析平台",
     "type": "list",
-    "default": ["bilibili", "douyin", "xiaohongshu"],
-    "hint": "填平台标识：bilibili / douyin / xiaohongshu。留空表示全部启用；书写顺序决定同一段文本先问哪个平台。填了但没实现的平台会被忽略，不会报错。注意：抖音需要先在 Web 面板「平台」页填第三方解析接口，否则只能识别链接给一句提示"
+    "default": ["bilibili", "douyin", "xiaohongshu", "heybox", "kuaishou", "weibo"],
+    "hint": "填平台标识：bilibili / douyin / xiaohongshu / heybox / kuaishou / weibo。留空表示全部启用；书写顺序决定同一段文本先问哪个平台。填了但没实现的平台会被忽略，不会报错。注意：抖音需要先在 Web 面板「平台」页填第三方解析接口，否则只能识别链接给一句提示"
   },
   "react_emoji_id": {
     "description": "解析提示表情 ID",
@@ -39,11 +39,23 @@
     "default": "auto",
     "hint": "协议端与 AstrBot 不在同一文件系统时（Docker 分离部署）会报 retcode 1200「路径不存在」，此时请选「仅直链 URL」；直链模式不占用机器人磁盘与中转流量"
   },
+  "public_base_url": {
+    "description": "AstrBot 对外地址（媒体中转）",
+    "type": "string",
+    "default": "",
+    "hint": "填面板能打开的那个地址，含端口，例如 http://1.2.3.4:6185。填了之后，本地文件发不出去时会先把文件挂到该地址上让协议端自己拉，可解决 Docker 分离部署的 retcode 1200；留空则关闭该功能"
+  },
   "max_video_mb": {
     "description": "视频体积上限 (MB)",
     "type": "int",
     "default": 40,
     "hint": "超过该体积就不下载文件、改为发送下载链接。实测（2026-10-24）协议端上传群视频会在 41MB（42991616 字节）处稳定失败（Highway code 102902）——51.9MB 与 54.3MB 两个视频都卡在同一点，所以默认调到 40；调大往往只是多花一次下载时间再失败"
+  },
+  "max_video_seconds": {
+    "description": "视频时长上限 (秒，0 = 不限制)",
+    "type": "int",
+    "default": 0,
+    "hint": "超过该时长的视频不下载文件，只发信息卡片与下载链接。时长在解析阶段就能拿到，比体积上限更早拦住长视频，省掉一次白下载；填 0 表示不限制"
   },
   "enable_summary": {
     "description": "启用 AI 总结",
@@ -107,10 +119,10 @@
     "hint": "下载站偶尔响应较慢，建议不低于 15 秒"
   },
   "max_concurrent": {
-    "description": "同时下载任务数",
+    "description": "并发上限（解析与下载各自）",
     "type": "int",
     "default": 1,
-    "hint": "建议保持 1~2，避免拖慢机器人，也避免给下载站造成压力"
+    "hint": "解析和下载分别最多同时进行这么多个。建议保持 1~2：解析要打平台接口并调模型，是最该限流的一段，调大容易触发 B 站 412；下载调大则会拖慢机器人、给下载站施压"
   },
   "user_cooldown": {
     "description": "单用户触发冷却 (秒)",
@@ -159,6 +171,70 @@
     "type": "int",
     "default": 760,
     "hint": "解析卡片的最大宽度。推荐 700~800；过宽（900 以上）会让 QQ 缩小显示、字反而变小。代码内限制 560~1000"
+  },
+  "card_theme": {
+    "description": "卡片主题",
+    "type": "string",
+    "options": ["light", "dark"],
+    "labels": ["浅色", "深色"],
+    "default": "light",
+    "hint": "信息卡片的配色。面板「外观」页可以边调边看效果，改完即时生效"
+  },
+  "card_accent": {
+    "description": "卡片强调色",
+    "type": "string",
+    "default": "#00AEEC",
+    "hint": "十六进制颜色（如 #00AEEC）。用在 B 站角标与 AI 总结块左侧的竖线上；抖音、小红书的品牌色不跟随，避免认错平台"
+  },
+  "card_brand": {
+    "description": "显示平台标识",
+    "type": "bool",
+    "default": true,
+    "hint": "卡片右上角显示 bilibili / 抖音 / 小红书 角标；关掉后标题区更干净"
+  },
+  "card_layout": {
+    "description": "卡片版式",
+    "type": "string",
+    "options": ["standard", "compact"],
+    "labels": ["标准", "紧凑"],
+    "default": "standard",
+    "hint": "紧凑版把封面压矮，聊天窗口一屏能看更多内容"
+  },
+  "card_radius": {
+    "description": "圆角 (px)",
+    "type": "int",
+    "default": 10,
+    "hint": "作用在封面、总结块、数据条与二维码上；代码内限制 0~24，再大就不像卡片了"
+  },
+  "card_show_cover": {
+    "description": "显示封面",
+    "type": "bool",
+    "default": true,
+    "hint": "关掉后只留标题、数据与总结，适合纯文字场景"
+  },
+  "card_show_time": {
+    "description": "显示发布时间",
+    "type": "bool",
+    "default": true,
+    "hint": "就在 UP 主昵称下面那一行"
+  },
+  "card_show_stats": {
+    "description": "显示数据条",
+    "type": "bool",
+    "default": true,
+    "hint": "时长 / 播放 / 点赞那一排；解析不到的项自动省略"
+  },
+  "card_watermark": {
+    "description": "底部署名",
+    "type": "string",
+    "default": "",
+    "hint": "显示在卡片左下角的小字，比如「由 XX 解析」；留空则不显示"
+  },
+  "card_qr": {
+    "description": "卡片带视频二维码",
+    "type": "bool",
+    "default": false,
+    "hint": "在卡片右下角画一个跳转视频的二维码，本地生成、不联网；二维码与热评图右上角那个互不影响"
   },
   "card_qrcode": {
     "description": "热评图带视频二维码",

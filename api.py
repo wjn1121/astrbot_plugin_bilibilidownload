@@ -84,12 +84,15 @@ def register(plugin) -> None:
         (f"/{plugin.plugin_name}/credentials/test", api_credentials_test, ["POST"], "测试凭据"),
         (f"/{plugin.plugin_name}/settings", api_settings, ["GET"], "运行期调整（读取）"),
         (f"/{plugin.plugin_name}/settings/set", api_settings_set, ["POST"], "运行期调整（保存）"),
+        (f"/{plugin.plugin_name}/preview/card", api_card_preview, ["GET"], "卡片外观预览"),
+        (f"/{plugin.plugin_name}/file/<token>", api_file, ["GET"], "媒体中转（协议端拉取）"),
         (f"/{plugin.plugin_name}/bili/qrcode", api_bili_qrcode, ["POST", "GET"], "B站扫码登录"),
         (f"/{plugin.plugin_name}/bili/logout", api_bili_logout, ["POST"], "退出 B 站登录"),
     )
     for route, func, methods, desc in routes:
         try:
-            plugin.context.register_web_api(route, _bind(plugin, func), methods, desc)
+            binder = _bind_path if func is api_file else _bind
+            plugin.context.register_web_api(route, binder(plugin, func), methods, desc)
         except Exception as exc:  # noqa: BLE001 - 老版本 AstrBot 没有该接口
             logger.warning(f"{LOG_TAG} 注册 Web API {route} 失败（面板不可用）：{exc}")
 
@@ -101,6 +104,225 @@ def _bind(plugin, func):
         return await func(plugin)
 
     return handler
+
+
+def _bind_path(plugin, func):
+    """带路径参数的 handler（如 /file/<token>）：宿主会把路径变量作为 kwargs 传进来。"""
+
+    async def handler(**kwargs):
+        return await func(plugin, **kwargs)
+
+    return handler
+
+
+# ── GET /preview/card ───────────────────────────────────────────────────
+
+# 外观预览用的示例数据：**不联网、不读缓存、不占去重窗口**。
+# 标题故意写长，方便看换行；总结够两三行，能看出行距与块高度。
+_SAMPLE_TITLE = "示例：一个比较长的视频标题，用来看两行换行和卡片整体高度"
+_SAMPLE_SUMMARY = (
+    "这是一段示例总结，用来观察正文的行距、换行与总结块的高度。"
+    "调整左侧的主题、强调色或卡片宽度，右边会立刻按新样式重新渲染，"
+    "不会发到任何群，也不会写进解析记录。"
+)
+
+
+def _svg_data_uri(svg: str) -> str:
+    """把内联 SVG 转成 data URI（预览不依赖任何外网图片）。"""
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode()
+
+
+_SAMPLE_COVER = _svg_data_uri(
+    """<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2B3A55"/>
+      <stop offset="1" stop-color="#171B24"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#g)"/>
+  <circle cx="640" cy="340" r="76" fill="#FFFFFF" opacity="0.16"/>
+  <path d="M618 300 L704 340 L618 380 Z" fill="#FFFFFF" opacity="0.92"/>
+  <text x="64" y="664" font-family="sans-serif" font-size="32"
+        fill="#FFFFFF" opacity="0.55">示例封面 · 不联网</text>
+</svg>"""
+)
+
+_SAMPLE_FACE = _svg_data_uri(
+    """<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00AEEC"/>
+      <stop offset="1" stop-color="#7A5CFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="60" fill="url(#a)"/>
+  <text x="60" y="76" text-anchor="middle" font-family="sans-serif"
+        font-size="44" fill="#FFFFFF">UP</text>
+</svg>"""
+)
+
+
+async def api_card_preview(plugin):
+    """用示例数据渲染一份卡片 HTML，交给面板放进 iframe 预览。
+
+    为什么返回 HTML 字符串而不是直接给个 URL 让 iframe 加载：
+    插件 Web API 走宿主的鉴权中间件，iframe 的普通 GET 带不上前端那份凭证；
+    而且这样连请求都省了——面板拿到字符串塞 ``srcdoc`` 就能显示，
+    样式完全隔离，也不受宿主页面 CSS 影响。
+
+    参数全部走 query，且每一项都做归一化：这个接口是网络入口，
+    主题/颜色会被拼进 ``<style>``，不能原样透传。
+    """
+    from quart import jsonify, request
+    from jinja2 import Template
+
+    from .core.card import (
+        build_context,
+        clamp_radius,
+        load_template,
+        normalize_layout,
+        normalize_theme,
+        qr_markup,
+        sanitize_accent,
+    )
+    from .core.media import MediaInfo
+
+    args = request.args
+    theme = normalize_theme(args.get("theme") or getattr(plugin, "card_theme", "light"))
+    accent = sanitize_accent(args.get("accent") or getattr(plugin, "card_accent", "#00AEEC"))
+    layout = normalize_layout(args.get("layout") or getattr(plugin, "card_layout", "standard"))
+
+    def flag(name: str, default: bool) -> bool:
+        """query 里的布尔：缺省时用插件的当前值，给了就按 ``0/false/no/off`` 判定。"""
+        raw = args.get(name)
+        if raw is None or raw == "":
+            return bool(default)
+        return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+    show_brand = flag("brand", getattr(plugin, "card_brand", True))
+    show_cover = flag("cover", getattr(plugin, "card_show_cover", True))
+    show_time = flag("time", getattr(plugin, "card_show_time", True))
+    show_stats = flag("stats", getattr(plugin, "card_show_stats", True))
+    show_qr = flag("qr", getattr(plugin, "card_qr", False))
+
+    try:
+        width = int(args.get("width") or getattr(plugin, "card_width", 760))
+    except (TypeError, ValueError):
+        width = getattr(plugin, "card_width", 760)
+    # 下限比真实卡片（560）更宽：预览按容器宽度渲染时可能只有 320~400，
+    # 卡在 560 会让窄面板里的预览又被等比缩小，字就看不清了
+    width = max(320, min(1000, width))
+
+    try:
+        radius = int(
+            args.get("radius")
+            if args.get("radius") is not None
+            else getattr(plugin, "card_radius", 10)
+        )
+    except (TypeError, ValueError):
+        radius = 10
+    radius = clamp_radius(radius)
+
+    watermark = str(
+        args.get("watermark")
+        if args.get("watermark") is not None
+        else getattr(plugin, "card_watermark", "")
+        or ""
+    ).strip()[:60]
+
+    info = MediaInfo(
+        platform="bilibili",
+        media_id="BVsample",
+        title=_SAMPLE_TITLE,
+        author="示例 UP 主",
+        duration=305,
+        # 固定时间戳：示例卡片的发布时间不该每次刷新都变
+        pubdate=1763200000,
+        source_url="https://www.bilibili.com/video/BV1xx411c7mD",
+        stats={"view": 1234000, "like": 56000},
+    )
+    qrcode_svg = qr_markup(info, 1) if show_qr else ""
+    context = build_context(
+        info,
+        summary=_SAMPLE_SUMMARY,
+        summary_basis="基于字幕（示例）",
+        cover_uri=_SAMPLE_COVER,
+        face_uri=_SAMPLE_FACE,
+        card_width=width,
+        theme=theme,
+        accent=accent,
+        show_brand=show_brand,
+        layout=layout,
+        radius=radius,
+        show_cover=show_cover,
+        show_time=show_time,
+        show_stats=show_stats,
+        watermark=watermark,
+        qrcode=qrcode_svg,
+    )
+    try:
+        html = Template(load_template()).render(**context)
+    except Exception as exc:  # noqa: BLE001 - 模板坏了也不该 500，面板要能显示原因
+        logger.warning(f"{LOG_TAG} 卡片预览渲染失败：{type(exc).__name__}: {exc}")
+        return jsonify({"success": False, "message": f"模板渲染失败：{exc}"})
+
+    # 拆成 css / body：面板用 Shadow DOM 直接把卡片挂进页面，不用 iframe。
+    # iframe 方案要测量内容高度、还容易出内部滚动条，Shadow DOM 高度天然自适应。
+    style_match = re.search(r"<style>(.*?)</style>", html, re.S)
+    body_match = re.search(r"<body>(.*?)</body>", html, re.S)
+
+    return jsonify(
+        {
+            "success": True,
+            "data": {
+                "html": html,
+                "css": style_match.group(1) if style_match else "",
+                "body": body_match.group(1) if body_match else "",
+                "theme": theme,
+                "accent": accent,
+                "width": width,
+                "layout": layout,
+                "radius": radius,
+                "brand": show_brand,
+                "cover": show_cover,
+                "time": show_time,
+                "stats": show_stats,
+                "watermark": watermark,
+                "qr": show_qr,
+            },
+        }
+    )
+
+
+# ── GET /file/<token> ───────────────────────────────────────────────────
+
+
+async def api_file(plugin, token: str = ""):
+    """媒体中转：把本地文件交给协议端下载。
+
+    只在 ``public_base_url`` 已配置时才会被生成链接；token 随机、有效期 10 分钟、
+    只能取到登记过的文件（不是任意路径），过期或文件已删除一律 404。
+    """
+    from quart import jsonify, send_file
+
+    path = plugin.resolve_file_token(token)
+    if path is None:
+        return jsonify({"success": False, "message": "链接已失效"}), 404
+
+    ext = path.suffix.lower()
+    mimetype = {
+        ".mp4": "video/mp4",
+        ".m4s": "video/mp4",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(ext, "application/octet-stream")
+
+    # conditional=True 支持 Range：视频分段拉取/断点续传都靠它
+    return await send_file(str(path), mimetype=mimetype, conditional=True)
 
 
 # ── GET /status ─────────────────────────────────────────────────────────

@@ -25,15 +25,21 @@ from __future__ import annotations
 
 import json
 import re
-import time
 
 from astrbot.api import logger
 
 from ..media import CAP_IMAGES, CAP_SUMMARY, CAP_VIDEO, MediaInfo, MediaItem, MediaRef
 from .base import BasePlatform, ParseHint
+from .douyin_session import get_share_session
+from .douyin_sign import generate_abogus
 from .errors import MediaNotFound, PlatformError
 
 LOG_TAG = "[bilibili-download]"
+
+UA_PC = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
 
 UA_MOBILE = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
@@ -42,10 +48,6 @@ UA_MOBILE = (
 
 _SHORT_PATTERN = r"v\.douyin\.com"
 _AWEME_ID = r"\d{15,25}"
-
-# ttwid 的缓存时长。抖音没公开有效期，6 小时是"够久又不会用到太旧的"折中；
-# 真失效了也没关系——下一发冷请求会重新下发一个。
-TTWID_TTL = 6 * 3600
 
 TRIGGER_PATTERN = (
     rf"https?://(?:{_SHORT_PATTERN})/[0-9A-Za-z]+"
@@ -76,12 +78,8 @@ class DouyinPlatform(BasePlatform):
         super().__init__(session, timeout=timeout, verbose=verbose)
         # 面板里填的第三方解析接口。留空 = 只识别不解析。
         self.api_url = api_url
-        # 抖音分享页只在**带有效 ttwid** 的请求里才把作品数据塞进 _ROUTER_DATA。
-        # 冷请求不发数据、但会在 Set-Cookie 里下发一个 ttwid，下一发带着才有内容。
-        # aiohttp 的 cookie jar 常常不认这个 Domain（.douyin.com 对 iesdouyin.com），
-        # 所以自己捞出来显式放进请求头——这一条决定了「首次解析成功还是失败」。
-        self._ttwid = ""
-        self._ttwid_at = 0.0
+        # 分享页会话：cookie 保持 + WAF 挑战 + 重试预算，逻辑见 douyin_session
+        self._share = get_share_session(self.timeout)
 
     def apply_credentials(self, data: dict[str, str]) -> None:
         api_url = str(data.get("api_url") or "").strip()
@@ -116,6 +114,8 @@ class DouyinPlatform(BasePlatform):
     async def parse(self, ref: MediaRef, *, hint: ParseHint | None = None) -> MediaInfo:
         page_url = ref.raw
         aweme_id = ref.media_id or ""
+        # 每条作品重置请求预算（跨 URL 变体共享，连发太多会被 IP 级限流）
+        self._share.start_work()
 
         if ref.is_short or not aweme_id:
             page_url = await self._follow(ref.raw)
@@ -155,6 +155,12 @@ class DouyinPlatform(BasePlatform):
                 logger.info(f"{LOG_TAG} 抖音 SSR 解析成功：{aweme_id}{suffix}")
                 return media
 
+        # 3) SSR 也没拿到 → a_bogus 签名 API（web 详情接口）
+        media = await self._parse_via_signed_api(aweme_id, ref)
+        if media is not None:
+            logger.info(f"{LOG_TAG} 抖音通过签名接口解析成功：{aweme_id}")
+            return media
+
         if self.api_url:
             raise PlatformError(
                 "抖音第三方接口没返回可用数据，可能是接口失效或格式不符",
@@ -169,6 +175,57 @@ class DouyinPlatform(BasePlatform):
         )
 
     # ── 第三方接口 ──────────────────────────────────────────────────────
+
+    async def _parse_via_signed_api(
+        self, aweme_id: str, ref: MediaRef
+    ) -> MediaInfo | None:
+        """SSR 被风控时的兜底：a_bogus 签名的 web 详情接口。
+
+        抖音这个接口要 ``a_bogus`` 签名（纯算法，无外部依赖，见 douyin_sign）。
+        失败不抛异常——它只是三条路径里的第三条，拿不到就让上层走第三方接口或报错。
+        """
+        from urllib.parse import quote, urlencode
+
+        params = {
+            "device_platform": "webapp",
+            "aid": "6383",
+            "channel": "channel_pc_web",
+            "aweme_id": aweme_id,
+        }
+        query = urlencode(params)
+        try:
+            a_bogus = generate_abogus(query, body="", user_agent=UA_PC, options=[0, 1, 8])
+        except Exception as exc:  # noqa: BLE001 - 签名失败不该影响其它路径
+            logger.warning(f"{LOG_TAG} 抖音 a_bogus 签名失败：{type(exc).__name__}: {exc}")
+            return None
+
+        url = (
+            "https://www.douyin.com/aweme/v1/web/aweme/detail/"
+            f"?{query}&a_bogus={quote(a_bogus)}"
+        )
+        headers = {
+            "User-Agent": UA_PC,
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"https://www.douyin.com/video/{aweme_id}",
+            **self._share.cookie_header(),
+        }
+        try:
+            async with self.session.get(
+                url, headers=headers, timeout=_timeout(self.timeout)
+            ) as resp:
+                if resp.status >= 400:
+                    logger.info(f"{LOG_TAG} 抖音签名接口返回 HTTP {resp.status}")
+                    return None
+                data = await resp.json(content_type=None)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"{LOG_TAG} 抖音签名接口请求失败：{type(exc).__name__}: {exc}")
+            return None
+
+        detail = data.get("aweme_detail") if isinstance(data, dict) else None
+        if not isinstance(detail, dict) or not detail:
+            logger.info(f"{LOG_TAG} 抖音签名接口没有 aweme_detail")
+            return None
+        return self._build_media(detail, aweme_id, ref)
 
     async def _parse_via_api(
         self, ref: MediaRef, aweme_id: str, page_url: str
@@ -268,70 +325,24 @@ class DouyinPlatform(BasePlatform):
         try:
             async with self.session.get(
                 short_url,
-                headers={"User-Agent": UA_MOBILE, **self._ttwid_header()},
+                headers={"User-Agent": UA_MOBILE, **self._share.cookie_header()},
                 timeout=_timeout(self.timeout),
                 allow_redirects=True,
             ) as resp:
-                self._remember_ttwid(resp)
                 return str(resp.url)
         except Exception as exc:  # noqa: BLE001
             raise PlatformError(f"抖音短链解析失败：{type(exc).__name__}") from exc
 
     async def _fetch(self, url: str) -> str:
-        try:
-            async with self.session.get(
-                url,
-                headers={
-                    "User-Agent": UA_MOBILE,
-                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-                    **self._ttwid_header(),
-                },
-                timeout=_timeout(self.timeout),
-                allow_redirects=True,
-            ) as resp:
-                self._remember_ttwid(resp)
-                if resp.status >= 400:
-                    raise PlatformError(f"抖音页面返回 HTTP {resp.status}")
-                return await resp.text(errors="replace")
-        except PlatformError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise PlatformError(f"抖音页面请求失败：{type(exc).__name__}") from exc
-
-    # ── ttwid 会话 ──────────────────────────────────────────────────────
-
-    def _ttwid_header(self) -> dict[str, str]:
-        """把缓存的 ttwid 拼成 Cookie 头；没有或已过期就返回空字典。"""
-        if not self._ttwid:
-            return {}
-        if time.time() - self._ttwid_at > TTWID_TTL:
-            self._ttwid = ""
-            return {}
-        return {"Cookie": f"ttwid={self._ttwid}"}
-
-    def _remember_ttwid(self, response) -> None:
-        """从响应的 Set-Cookie 里捞 ttwid。
-
-        不依赖 aiohttp 的 cookie jar：这个 cookie 的 Domain 是 ``.douyin.com``，
-        而我们要请求的是 ``www.iesdouyin.com`` 和 ``v.douyin.com``，jar 不一定
-        会把它带出去；显式取出来最省事，也避免"有时能用有时不能用"的随机性。
-        """
-        try:
-            raw_cookies = response.headers.getall("Set-Cookie", [])
-        except (AttributeError, TypeError):
-            return
-        for raw in raw_cookies:
-            name, _, rest = raw.partition("=")
-            if name.strip().lower() != "ttwid":
-                continue
-            value = rest.split(";", 1)[0].strip()
-            if value and value != self._ttwid:
-                self._ttwid = value
-                self._ttwid_at = time.time()
-                logger.debug(f"{LOG_TAG} 已更新抖音会话凭证 ttwid（{len(value)} 字符）")
-            return
-
-    # ── SSR 解析（当前拿不到数据，保留以便将来恢复） ──────────────────────
+        """抓分享页；cookie、WAF 挑战、重试都在会话层处理。"""
+        return await self._share.fetch(
+            self.session,
+            url,
+            {
+                "User-Agent": UA_MOBILE,
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            },
+        )
 
     def _parse_from_ssr(
         self, html: str, aweme_id: str, ref: MediaRef, page_url: str
@@ -353,6 +364,13 @@ class DouyinPlatform(BasePlatform):
         if item is None:
             return None
 
+        return self._build_media(item, aweme_id, ref)
+
+    def _build_media(self, item: dict, aweme_id: str, ref: MediaRef) -> MediaInfo:
+        """把 ``aweme_detail`` / ``videoInfoRes.item_list[0]`` 转成 MediaInfo。
+
+        SSR 与签名接口拿到的结构一致，解析只写一份。
+        """
         author = item.get("author") or {}
         video = item.get("video") or {}
         stats = item.get("statistics") or {}

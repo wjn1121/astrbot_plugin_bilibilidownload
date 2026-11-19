@@ -115,10 +115,13 @@ def build_caption(
     summary_basis: str | None,
     web_url: str | None,
     video_attached: bool,
-    oversized_mb: float | None = None,
     download_hint: str | None = None,
 ) -> str:
-    """组装发送给用户的信息卡片（纯文本部分）。"""
+    """组装发送给用户的信息卡片（纯文本部分）。
+
+    「超体积 / 超时长」的提示不在这里：那时知道具体数值的是下载阶段，
+    文案由 ``DispatchMixin._oversize_tip`` 生成，避免这里再猜一遍上限。
+    """
     lines: list[str] = []
 
     page_tag = f"（P{page}）" if page and page > 1 else ""
@@ -136,9 +139,6 @@ def build_caption(
     if video_attached:
         lines.append("")
         lines.append("🎬 视频文件已附在下方")
-    elif oversized_mb is not None:
-        lines.append("")
-        lines.append(f"⚠️ 视频约 {oversized_mb:.0f} MB，超过体积上限，未自动发送文件")
 
     if web_url:
         lines.append("")

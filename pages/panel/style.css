@@ -17,8 +17,16 @@
 
 * { box-sizing: border-box; }
 
+/* html 也铺底色：AstrBot 的插件 iframe 高度随内容自适应，
+   body 不够高时下半截会露出宿主页面的颜色，看起来像面板被截断 */
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+
 body {
   margin: 0;
+  min-height: 860px;
   background: var(--bg);
   color: var(--text);
   font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -30,9 +38,11 @@ body {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
   gap: 20px;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 20px 18px 64px;
+  /* 不再卡 1180 居中：宿主给多宽就用多宽，宽屏下左右不会空出两条黑边 */
+  max-width: none;
+  min-height: 860px;
+  margin: 0;
+  padding: 20px 20px 32px;
   align-items: start;
 }
 
@@ -96,6 +106,8 @@ body {
 }
 
 .content { min-width: 0; }
+
+
 .pane { display: none; }
 .pane.on { display: block; }
 
@@ -278,6 +290,19 @@ select { width: auto; padding: 5px 9px; font-size: 12px; }
   border-radius: 9px;
   font-size: 12.5px;
 }
+/* AI 总结单独占一行，最多两行，避免长总结把列表撑开 */
+.history-row .hist-summary {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+  padding-top: 2px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
 .history-row.fail { border-left: 3px solid var(--danger); }
 .history-row.ok { border-left: 3px solid #2c5741; }
 .history-row time { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -517,6 +542,153 @@ button.platform:hover { border-color: var(--accent); }
   cursor: pointer;
 }
 .mini:hover { color: var(--text); border-color: var(--muted); }
+
+/* ── 卡片外观页 ─────────────────────────────────────────── */
+
+/* 外观页不锁死高度：预览框贴合卡片实际高度，避免框里空出一大片棋盘。
+   内容本身不高（左栏控件 ~300、右栏预览 ~500），一屏放得下。 */
+.pane[data-pane="appearance"] > .card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 参照成熟面板的比例：控件与预览各占一半。
+   之前控件只有 204px、预览被拉得很宽，卡片按预览宽度排版就变成 1200+ 高，
+   页面一半都是空的。两栏等宽后卡片回到 560 左右，一屏放得下。 */
+.look-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1.05fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+/* 缺了这几条，iframe 的固定宽度会把列顶开，clientWidth 变大，
+   缩放算错、卡片就被裁 */
+.look-grid > *,
+.look-preview,
+.look-frame {
+  min-width: 0;
+  min-height: 0;
+}
+
+.look-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.look-field > label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.look-field > label b { color: var(--text); font-weight: 600; }
+.look-field input[type="text"] { width: 100%; }
+.look-span { grid-column: 1 / -1; }
+
+.seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--accent); color: #fff; }
+
+.color-row { display: flex; gap: 8px; align-items: center; }
+.color-row input[type="color"] {
+  width: 46px;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-2);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.color-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+
+.look-field input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+.look-switches { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.look-field .check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.look-field .check input { accent-color: var(--accent); }
+
+.look-preview {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card-2);
+}
+.look-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.look-preview-head i { font-style: normal; opacity: 0.75; margin-left: 8px; }
+.look-head-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* 棋盘底：让浅色卡片在深色面板上也有边界感。
+   iframe 宽度 100%，高度由卡片内容决定（JS 写入），不做缩放。 */
+.look-frame {
+  padding: 12px;
+  overflow: hidden;
+  background-color: #0b0d12;
+  background-image:
+    linear-gradient(45deg, #101319 25%, transparent 25%, transparent 75%, #101319 75%),
+    linear-gradient(45deg, #101319 25%, transparent 25%, transparent 75%, #101319 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+/* 卡片本体挂在 Shadow DOM 里：样式与面板隔离，高度由内容自然撑开 */
+#lookPreviewHost {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.look-status {
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
 
 @media (max-width: 720px) {
   .shell { grid-template-columns: 1fr; }

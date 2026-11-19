@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,47 @@ from .qrcode import qr_svg
 
 # 模板默认宽度（模板内用 max-width 生效，视口更宽时卡片居中）
 DEFAULT_CARD_WIDTH = 760
+
+# 卡片外观：默认浅色（与 v1.0 观感一致），强调色取 B 站蓝
+DEFAULT_CARD_THEME = "light"
+DEFAULT_CARD_ACCENT = "#00AEEC"
+DEFAULT_CARD_RADIUS = 10
+CARD_LAYOUTS = ("standard", "compact")
+
+_ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def normalize_layout(value: object) -> str:
+    """只认 ``compact``，其余按 ``standard``。"""
+    return "compact" if str(value or "").strip().lower() == "compact" else "standard"
+
+
+def clamp_radius(value: object) -> int:
+    """圆角限制在 0~24：再大就成胶囊了，封面会看起来像被裁掉。"""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_CARD_RADIUS
+    return max(0, min(24, number))
+
+
+def normalize_theme(value: object) -> str:
+    """只认 ``dark``，其余一律按浅色处理。
+
+    主题会直接拼进模板的 CSS 变量，所以要归一化而不是原样透传——
+    配置里写错一个字母不该让整张卡片变成无样式的白板。
+    """
+    return "dark" if str(value or "").strip().lower() == "dark" else DEFAULT_CARD_THEME
+
+
+def sanitize_accent(value: object) -> str:
+    """校验 ``#RRGGBB``；不合法就退回默认色。
+
+    这个值会被写进 ``<style>``，不校验等于开了一个 CSS 注入口子
+    （虽然来源是本地配置，但面板是网络接口，能收紧就收紧）。
+    """
+    text = str(value or "").strip()
+    return text if _ACCENT_RE.match(text) else DEFAULT_CARD_ACCENT
 
 # 内嵌图片约束：单张上限避免把 HTML 撑到几十 MB；超时短一些，失败就用占位样式
 INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024
@@ -206,6 +248,16 @@ def build_context(
     cover_uri: str | None,
     face_uri: str | None,
     card_width: int = DEFAULT_CARD_WIDTH,
+    theme: str = DEFAULT_CARD_THEME,
+    accent: str = DEFAULT_CARD_ACCENT,
+    show_brand: bool = True,
+    layout: str = "standard",
+    radius: int = DEFAULT_CARD_RADIUS,
+    show_cover: bool = True,
+    show_time: bool = True,
+    show_stats: bool = True,
+    watermark: str = "",
+    qrcode: str = "",
 ) -> dict:
     """把 ``MediaInfo`` 映射成模板变量。
 
@@ -217,8 +269,31 @@ def build_context(
     （老数据 / 第三方构造的 MediaInfo）时给空串，模板会整块跳过——**宁可没有
     角标，也不要把抖音的内容标成 bilibili**。
     """
+    # 数据条：只放已解析到的字段，缺哪个就少一格（不填 0，否则「0 播放」很怪）
+    stats: list[dict[str, str]] = []
+    if info.duration:
+        stats.append({"label": "时长", "value": format_duration(info.duration)})
+    view = info.stat("view")
+    if view:
+        stats.append({"label": "播放", "value": format_count(view)})
+    like = info.stat("like")
+    if like:
+        stats.append({"label": "点赞", "value": format_count(like)})
+
     return {
         "card_width": card_width,
+        # 外观：模板靠这几个变量切 CSS 变量，DOM 只有一份，面板预览才能与真实卡片一致
+        "theme": normalize_theme(theme),
+        "accent": sanitize_accent(accent),
+        "show_brand": bool(show_brand),
+        "layout": normalize_layout(layout),
+        "radius": clamp_radius(radius),
+        "show_cover": bool(show_cover),
+        "show_time": bool(show_time),
+        "show_stats": bool(show_stats),
+        "watermark": str(watermark or "").strip(),
+        "qrcode": qrcode or "",
+        "stats": stats,
         "brand": (info.platform or "").strip().lower(),
         "owner": (info.author or "未知 UP 主").strip(),
         "owner_face": face_uri or "",
@@ -266,6 +341,20 @@ async def render_card(
     调用方约定：拿到 ``None`` 就回退现有的纯文本卡片——**卡片只是锦上添花，
     任何失败都不能让会话无响应、更不能把异常发进群里**。
     """
+    # 外观从插件实例读：面板改的是运行期属性，这里不额外传参，
+    # 调用方（main._render_card / 面板试解析）就不用各自记得转发一遍。
+    theme = normalize_theme(getattr(star, "card_theme", DEFAULT_CARD_THEME))
+    accent = sanitize_accent(getattr(star, "card_accent", DEFAULT_CARD_ACCENT))
+    show_brand = bool(getattr(star, "card_brand", True))
+    layout = normalize_layout(getattr(star, "card_layout", "standard"))
+    radius = clamp_radius(getattr(star, "card_radius", DEFAULT_CARD_RADIUS))
+    show_cover = bool(getattr(star, "card_show_cover", True))
+    show_time = bool(getattr(star, "card_show_time", True))
+    show_stats = bool(getattr(star, "card_show_stats", True))
+    watermark = str(getattr(star, "card_watermark", "") or "").strip()
+    # 二维码每次现算：纯本地编码，不联网，几十毫秒；关掉时连算都不算
+    qrcode = qr_markup(info, info.page) if getattr(star, "card_qr", False) else ""
+
     # ── 1) HTML 模板 → 图片（首选，表现力最好）
     html_render = getattr(star, "html_render", None)
     if callable(html_render):
@@ -282,6 +371,16 @@ async def render_card(
                 cover_uri=cover_uri,
                 face_uri=face_uri,
                 card_width=card_width,
+                theme=theme,
+                accent=accent,
+                show_brand=show_brand,
+                layout=layout,
+                radius=radius,
+                show_cover=show_cover,
+                show_time=show_time,
+                show_stats=show_stats,
+                watermark=watermark,
+                qrcode=qrcode,
             )
             # 外层再套一层总预算：html_render 自己的 timeout 只管「一次截图」，
             # 管不住 t2i 在多个端点之间的轮换重试。
@@ -377,7 +476,7 @@ def _meta_items(info: MediaInfo) -> list[dict]:
     return items
 
 
-def _qr_markup(info: MediaInfo, page: int) -> str:
+def qr_markup(info: MediaInfo, page: int) -> str:
     """视频链接的二维码 SVG；拿不到链接或生成失败时返回空串（模板整块跳过）。
 
     链接优先取平台给的 ``extras["qr_url"]``（B 站要指向 bilibili.com 而不是下载站），
@@ -441,7 +540,7 @@ async def render_replies_card(
             "video_title": (info.title or "").strip(),
             "plugin_version": VERSION,
             "meta_items": _meta_items(info),
-            "qrcode": _qr_markup(info, page) if with_qrcode else "",
+            "qrcode": qr_markup(info, page) if with_qrcode else "",
             "replies": items,
         }
         # 与信息卡片一样套总预算：热评图渲染失败只是少一张图，不该拖住整条回复。
@@ -468,16 +567,25 @@ async def render_replies_card(
 
 
 __all__ = [
+    "CARD_LAYOUTS",
+    "DEFAULT_CARD_ACCENT",
+    "DEFAULT_CARD_RADIUS",
+    "DEFAULT_CARD_THEME",
     "DEFAULT_CARD_WIDTH",
     "build_context",
+    "clamp_radius",
     "format_pubdate",
     "inline_image",
     "load_replies_template",
     "load_template",
+    "normalize_layout",
+    "normalize_theme",
     "plain_text",
+    "qr_markup",
     "render_card",
     "render_replies_card",
     "replies_template_available",
+    "sanitize_accent",
     "template_available",
     "template_path",
 ]

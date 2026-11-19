@@ -26,6 +26,7 @@ _SHORT_HOST_PATTERN = "|".join(host.replace(".", r"\.") for host in _SHORT_URL_H
 TRIGGER_REGEX = (
     rf"https?://(?:www\.|m\.)?bilibili\.com/video/(?:{_BV_PATTERN}|{_AV_PATTERN})[^\s]*"
     rf"|https?://(?:{_SHORT_HOST_PATTERN})/[0-9A-Za-z]+"
+    rf"|https?://(?:t\.bilibili\.com|(?:www\.)?bilibili\.com/opus)/\d+[^\s]*"
     rf"|(?<![0-9A-Za-z])(?:{_BV_PATTERN}|{_AV_PATTERN})(?![0-9A-Za-z])"
 )
 
@@ -34,6 +35,7 @@ _BV_RE = re.compile(_BV_PATTERN, re.IGNORECASE)
 _AV_RE = re.compile(_AV_PATTERN, re.IGNORECASE)
 _PAGE_RE = re.compile(r"[?&]p=(\d+)")
 _SHORT_RE = re.compile(rf"https?://(?:{_SHORT_HOST_PATTERN})/[0-9A-Za-z]+", re.IGNORECASE)
+_DYNAMIC_RE = re.compile(r"(?:t\.bilibili\.com|bilibili\.com/opus)/(\d+)", re.IGNORECASE)
 
 # 回复「下载」这类自然语言触发词（整条消息就是一个下载指令时才生效）
 DOWNLOAD_WORD_REGEX = r"^[\s\u200b]*[!！/／]?(?:下载|下载视频|获取视频|要视频|发视频)[\s\u200b]*$"
@@ -48,6 +50,7 @@ class BiliRef:
     aid: int | None  # av 号（数字部分）
     page: int  # 1-based 分P序号
     short_url: str | None  # 命中 b23.tv 短链时保存原始短链
+    dynamic_id: str | None = None  # 动态/opus 的作品 id（图文动态走这条路）
 
     @property
     def is_short_link(self) -> bool:
@@ -77,6 +80,14 @@ def find_ref(text: str) -> BiliRef | None:
     if _SHORT_RE.fullmatch(raw):
         # 短链里看不出 BV 号，留给 BiliApi 跳转解析
         return BiliRef(raw=raw, bvid=None, aid=None, page=1, short_url=raw)
+
+    dynamic = _DYNAMIC_RE.search(raw)
+    if dynamic:
+        # 动态/图文（t.bilibili.com/<id> 或 /opus/<id>）：不是视频，走动态接口
+        return BiliRef(
+            raw=raw, bvid=None, aid=None, page=1, short_url=None,
+            dynamic_id=dynamic.group(1),
+        )
 
     page = 1
     page_match = _PAGE_RE.search(raw)

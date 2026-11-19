@@ -10,13 +10,27 @@
 
   可用变量：
       card_width    卡片宽度上限(px)，默认 760
+      theme         "light"（默认）/ "dark"，只切换 CSS 变量，DOM 结构完全一致
+      accent        强调色（#RRGGBB），用于 B 站角标与总结块的竖线
+      radius        圆角(px)，作用在封面、总结块、数据条与二维码
+      layout        "standard"（默认）/ "compact"（封面更矮，一屏能看更多）
+      show_brand    是否显示右上角平台标识
+      show_cover    是否显示封面
+      show_time     是否显示发布时间
+      show_stats    是否显示时长/播放/点赞那一排
+      watermark     底部署名文字（空则不渲染）
+      qrcode        视频二维码的内联 SVG（空则不渲染）
       owner         UP 主昵称
       owner_face    头像（data URI 或 URL，可空 → 显示灰底圆形占位）
       pubdate_text  发布时间文本（可空 → 不渲染该行）
       title         视频标题
-      cover         封面（data URI 或 URL，可空 → 不渲染封面）
+      cover         封面（data URI 或 URL，可空 → 显示占位块）
       summary       AI 总结正文（可空 → 不渲染总结块）
       summary_basis 总结依据标签，如「基于简介与热评」（可空）
+      stats         [{"label": "播放", "value": "12.3万"}, ...]
+
+  主题为什么用 CSS 变量而不是两套 HTML：面板的「外观」页要实时预览，
+  两种主题共用同一份 DOM 才能保证预览与真实发出的卡片一模一样。
 #}
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -28,7 +42,36 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  html { background: #ffffff; }
+  /* 所有尺寸以 --u 为单位（760 宽时 20px，与原来的字号基准一致）：
+     t2i 走 html 上的 vw 自适应，面板预览走 :host（由 JS 按预览宽度写入）。
+     用变量而不是 rem，是因为 preview 用 Shadow DOM 渲染，rem 会以宿主文档
+     的根字号为基准，根本读不到卡片容器宽度。 */
+  html { --u: clamp(13px, 2.6vw, 20px); }
+  :host { --u: clamp(13px, 2.6vw, 20px); }
+
+  :root, :host {
+    --bg: #FFFFFF;
+    --fg: #18191C;
+    --muted: #9499A0;
+    --panel: #F6F7F8;
+    --line: #E3E5E7;
+    --media-bg: #E3E5E7;
+    --accent: {{ accent | default('#00AEEC') }};
+    --radius: {{ radius | default(10) }}px;
+  }
+
+  {% if theme == 'dark' %}
+  :root, :host {
+    --bg: #16181D;
+    --fg: #F2F3F5;
+    --muted: #8B9099;
+    --panel: #22252C;
+    --line: #2E323A;
+    --media-bg: #22252C;
+  }
+  {% endif %}
+
+  html { background: var(--bg); }
 
   /* 自适应视口：AstrBot 的截图视口宽度未知，用 100% + max-width 保证
      两种情况都不会截断，也不会出现右侧被裁掉的问题。 */
@@ -36,77 +79,132 @@
     width: 100%;
     max-width: {{ card_width | default(760) }}px;
     margin: 0 auto;
-    background: #ffffff;
-    color: #18191C;
+    background: var(--bg);
+    color: var(--fg);
     font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
                  "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
-  .card { padding: 22px 22px 24px; }
+  /* 面板预览把 body 内容塞进 .card-root（Shadow DOM 里没有 body 元素），
+     这里补齐 body 上那几项视觉属性 */
+  .card-root {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+                 "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .card { padding: calc(var(--u) * 1.1) calc(var(--u) * 1.1) calc(var(--u) * 1.2); }
 
   /* ── 顶部：头像 + 昵称/时间 + 平台标识 ───────────────────── */
-  .header { display: flex; align-items: center; gap: 14px; }
+  .header { display: flex; align-items: center; gap: calc(var(--u) * 0.7); }
 
   .avatar {
-    width: 56px; height: 56px; border-radius: 50%;
-    object-fit: cover; background: #E3E5E7; flex: 0 0 auto;
+    width: calc(var(--u) * 2.8); height: calc(var(--u) * 2.8); border-radius: 50%;
+    object-fit: cover; background: var(--media-bg); flex: 0 0 auto;
   }
 
   .meta { flex: 1 1 auto; min-width: 0; }
 
   .nickname {
-    font-size: 26px; line-height: 1.25; color: #18191C;
+    font-size: calc(var(--u) * 1.3); line-height: 1.25; color: var(--fg);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .time { font-size: 20px; line-height: 1.3; color: #9499A0; margin-top: 5px; }
+  .time { font-size: calc(var(--u) * 1); line-height: 1.3; color: var(--muted); margin-top: calc(var(--u) * 0.25); }
 
-  .brand { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
-  .brand-text { font-size: 25px; line-height: 1; color: #00AEEC; font-weight: 500; }
+  .brand { flex: 0 0 auto; display: flex; align-items: center; gap: calc(var(--u) * 0.35); }
+  .brand-svg { width: calc(var(--u) * 1.5); height: auto; }
+  .brand-text { font-size: calc(var(--u) * 1.25); line-height: 1; color: var(--accent); font-weight: 500; }
 
   /* ── 标题 ────────────────────────────────────────────────── */
   .title {
-    margin-top: 18px;
-    font-size: 30px; font-weight: 600; line-height: 1.45;
-    color: #18191C;
+    margin-top: calc(var(--u) * 0.9);
+    font-size: calc(var(--u) * 1.5); font-weight: 600; line-height: 1.45;
+    color: var(--fg);
     word-break: break-word;
   }
 
   /* ── 封面 ────────────────────────────────────────────────── */
-  .cover-wrap { margin-top: 16px; }
+  .cover-wrap { margin-top: calc(var(--u) * 0.8); }
 
   .cover {
     display: block; width: 100%;
     aspect-ratio: 16 / 9; object-fit: cover;
-    border-radius: 10px; background: #E3E5E7;
+    border-radius: var(--radius); background: var(--media-bg);
   }
+
+  /* 紧凑版式：封面压矮，聊天窗口里一屏能看到更多内容 */
+  .card.compact .cover { aspect-ratio: 16 / 6.5; }
+  .card.compact .title { font-size: calc(var(--u) * 1.4); margin-top: calc(var(--u) * 0.7); }
+  .card.compact .cover-wrap { margin-top: 12px; }
 
   /* 封面缺失时的占位（避免出现一块突兀的空白） */
   .cover-placeholder {
     display: flex; align-items: center; justify-content: center;
-    color: #9499A0; font-size: 22px;
-    background: linear-gradient(135deg, #EDEFF2, #DCE0E5);
+    color: var(--muted); font-size: calc(var(--u) * 1.1);
+    background: linear-gradient(135deg, var(--panel), var(--media-bg));
   }
+
+  /* ── 数据条：时长 / 播放 / 点赞 ──────────────────────────── */
+  .stats {
+    display: flex; flex-wrap: wrap; gap: calc(var(--u) * 0.4);
+    margin-top: calc(var(--u) * 0.7);
+  }
+
+  .pill {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    padding: calc(var(--u) * 0.3) calc(var(--u) * 0.6);
+    border-radius: calc(var(--radius) * 0.75);
+    background: var(--panel);
+    font-size: calc(var(--u) * 0.95); line-height: 1.3; color: var(--muted);
+  }
+
+  .pill b { color: var(--fg); font-weight: 600; }
 
   /* ── AI 总结块 ───────────────────────────────────────────── */
   .summary {
-    margin-top: 16px;
-    padding: 16px 18px;
-    background: #F6F7F8;      /* 想要纯白底可改为 #FFFFFF 并加 1px #E3E5E7 边框 */
-    border-radius: 10px;
-    font-size: 24px; line-height: 1.62; color: #18191C;
+    margin-top: calc(var(--u) * 0.8);
+    padding: calc(var(--u) * 0.8) calc(var(--u) * 0.9);
+    background: var(--panel);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: calc(var(--u) * 1.2); line-height: 1.62; color: var(--fg);
     word-break: break-word;
   }
 
   .summary-basis {
-    margin-top: 10px;
-    font-size: 19px; line-height: 1.4; color: #9499A0;
+    margin-top: calc(var(--u) * 0.5);
+    font-size: calc(var(--u) * 0.95); line-height: 1.4; color: var(--muted);
   }
+
+  /* ── 底栏：署名 + 二维码 ─────────────────────────────────── */
+  .footer {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: calc(var(--u) * 0.7); margin-top: calc(var(--u) * 0.8);
+  }
+
+  .watermark {
+    font-size: calc(var(--u) * 0.9); line-height: 1.4; color: var(--muted);
+    word-break: break-all;
+  }
+
+  .qr {
+    flex: 0 0 auto;
+    width: calc(var(--u) * 4.8); height: calc(var(--u) * 4.8);
+    padding: calc(var(--u) * 0.3); border-radius: 8px;
+    background: #FFFFFF;
+    border: 1px solid var(--line);
+  }
+
+  .qr svg { display: block; width: 100%; height: 100%; }
 </style>
 </head>
 <body>
-  <div class="card">
+  <div class="card{% if layout == 'compact' %} compact{% endif %}">
 
     <div class="header">
       {% if owner_face %}
@@ -117,48 +215,65 @@
 
       <div class="meta">
         <div class="nickname">{{ owner }}</div>
-        {% if pubdate_text %}
+        {% if show_time and pubdate_text %}
         <div class="time">{{ pubdate_text }}</div>
         {% endif %}
       </div>
 
       {# 角标跟着来源平台走：把抖音的内容打成「bilibili」，比不放标识更让人困惑 #}
+      {% if show_brand %}
       {% if brand == "bilibili" %}
       <div class="brand">
-        {# 简化版 B 站标识：内联 SVG，不引入图片资源，也不依赖网络 #}
-        <svg width="31" height="22" viewBox="0 0 34 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 2.5 L12.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
-          <path d="M26 2.5 L21.5 7" stroke="#00AEEC" stroke-width="2.4" stroke-linecap="round"/>
-          <rect x="2" y="6.5" width="30" height="16" rx="4.5" stroke="#00AEEC" stroke-width="2.4"/>
-          <circle cx="12" cy="14.5" r="2.1" fill="#00AEEC"/>
-          <circle cx="22" cy="14.5" r="2.1" fill="#00AEEC"/>
+        {# 简化版 B 站标识：内联 SVG，不引入图片资源，也不依赖网络。
+           描边跟随强调色，用户换主题色时角标一起变。 #}
+        <svg class="brand-svg" width="31" height="22" viewBox="0 0 34 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 2.5 L12.5 7" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M26 2.5 L21.5 7" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"/>
+          <rect x="2" y="6.5" width="30" height="16" rx="4.5" stroke="var(--accent)" stroke-width="2.4"/>
+          <circle cx="12" cy="14.5" r="2.1" fill="var(--accent)"/>
+          <circle cx="22" cy="14.5" r="2.1" fill="var(--accent)"/>
         </svg>
         <span class="brand-text">bilibili</span>
       </div>
       {% elif brand == "douyin" %}
       <div class="brand">
-        {# 抖音音符标识。官方是青 + 红双色音符，深色卡片上双色反而糊，这里只保留轮廓色 #}
-        <svg width="27" height="27" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {# 抖音音符标识。官方是青 + 红双色音符，深色卡片上双色反而糊，这里只保留轮廓色。
+           抖音/小红书的品牌色**不跟随**强调色：那是识别标识，不是装饰。 #}
+        <svg class="brand-svg" width="27" height="27" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 4.4v11.3" stroke="#25F4EE" stroke-width="2.3" stroke-linecap="round"/>
           <circle cx="9.4" cy="16.2" r="3.1" stroke="#25F4EE" stroke-width="2.3"/>
           <path d="M12 4.4c.2 2.7 2.2 4.7 4.9 4.9" stroke="#FE2C55" stroke-width="2.3" stroke-linecap="round"/>
         </svg>
         <span class="brand-text" style="color:#25F4EE">抖音</span>
       </div>
+      {% elif brand == "heybox" %}
+      <div class="brand">
+        {# 小黑盒标识：黑底白字的「盒」，深色主题下自动反过来（跟随前景色） #}
+        <svg class="brand-svg" width="26" height="26" viewBox="0 0 24 24"
+             xmlns="http://www.w3.org/2000/svg">
+          <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="var(--fg)"/>
+          <text x="12" y="16.6" text-anchor="middle" font-size="12"
+                font-family="PingFang SC, Microsoft YaHei, sans-serif"
+                fill="var(--bg)">盒</text>
+        </svg>
+        <span class="brand-text" style="color:var(--fg)">小黑盒</span>
+      </div>
       {% elif brand == "xiaohongshu" %}
       <div class="brand">
         {# 小红书标识（书本对开） #}
-        <svg width="27" height="27" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg class="brand-svg" width="27" height="27" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <rect x="3.4" y="4.4" width="17.2" height="15.2" rx="3.6" stroke="#FF2442" stroke-width="2.2"/>
           <path d="M12 4.4v15.2" stroke="#FF2442" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
         <span class="brand-text" style="color:#FF2442">小红书</span>
       </div>
       {% endif %}
+      {% endif %}
     </div>
 
     <div class="title">{{ title }}</div>
 
+    {% if show_cover %}
     <div class="cover-wrap">
       {% if cover %}
       <img class="cover" src="{{ cover }}" alt="">
@@ -166,6 +281,15 @@
       <div class="cover cover-placeholder">视频封面</div>
       {% endif %}
     </div>
+    {% endif %}
+
+    {% if show_stats and stats %}
+    <div class="stats">
+      {% for item in stats %}
+      <span class="pill">{{ item.label }} <b>{{ item.value }}</b></span>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     {% if summary %}
     <div class="summary">
@@ -176,6 +300,17 @@
     </div>
     {% endif %}
 
+    {% if watermark or qrcode %}
+    <div class="footer">
+      <div class="watermark">{{ watermark }}</div>
+      {% if qrcode %}
+      <div class="qr">{{ qrcode | safe }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
   </div>
+
+
 </body>
 </html>

@@ -21,6 +21,11 @@
         <button type="button" class="nav-item" data-tab="bilibili">📺 <span>哔哩哔哩</span><i class="dot" id="dotBilibili" hidden></i></button>
         <button type="button" class="nav-item" data-tab="douyin">🎵 <span>抖音</span><i class="dot" id="dotDouyin" hidden></i></button>
         <button type="button" class="nav-item" data-tab="xiaohongshu">📕 <span>小红书</span><i class="dot" id="dotXiaohongshu" hidden></i></button>
+        <button type="button" class="nav-item" data-tab="heybox">🎮 <span>小黑盒</span><i class="dot" id="dotHeybox" hidden></i></button>
+        <button type="button" class="nav-item" data-tab="kuaishou">⚡ <span>快手</span><i class="dot" id="dotKuaishou" hidden></i></button>
+        <button type="button" class="nav-item" data-tab="weibo">🌐 <span>微博</span><i class="dot" id="dotWeibo" hidden></i></button>
+        <div class="nav-label">外观</div>
+        <button type="button" class="nav-item" data-tab="appearance">🎨 <span>卡片外观</span></button>
         <div class="nav-label">工具</div>
         <button type="button" class="nav-item" data-tab="probe">🔍 <span>试解析</span></button>
         <button type="button" class="nav-item" data-tab="history">🕘 <span>最近</span></button>
@@ -61,6 +66,8 @@
           <h2>最近一次错误</h2>
           <p class="hint" id="lastError">暂无错误记录</p>
         </section>
+
+
       </section>
 
       <!-- ── 哔哩哔哩 ─────────────────────────────────────────── -->
@@ -187,6 +194,148 @@
       </section>
 
       <!-- ── 试解析 ───────────────────────────────────────────── -->
+      <!-- ── 小黑盒 ───────────────────────────────────────────── -->
+      <section class="pane" data-pane="heybox">
+        <section class="card" id="hbHead">
+          <h2 class="card-title">
+            <span>小黑盒 <small id="hbCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="hbEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="hbState"></div>
+          <p class="hint">
+            走移动端通道签名，<b>不需要 Cookie</b> 也能拿视频直链和正文。图集帖的图片接口暂未开放，
+            这类帖子只能出文字卡片。
+          </p>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">
+            <span>Cookie <small>可选</small></span>
+            <span class="badge" id="hbCookieBadge">检查中…</span>
+          </h2>
+          <div class="field-row">
+            <input id="hbCookie" type="password" placeholder="粘贴整段 Cookie（留空则清除）"
+                   autocomplete="off" />
+            <button id="hbCookieSave" class="ghost" type="button">保存</button>
+          </div>
+          <p class="hint">
+            浏览器登录小黑盒 → F12 → Network → 任意请求 → 复制完整 Cookie。填了能提高通过率，
+            不填也能解析视频与文字帖。建议用小号。
+          </p>
+        </section>
+      </section>
+
+      <!-- ── 快手 ─────────────────────────────────────────────── -->
+      <section class="pane" data-pane="kuaishou">
+        <section class="card" id="ksHead">
+          <h2 class="card-title">
+            <span>快手 <small id="ksCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="ksEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="ksState"></div>
+          <p class="hint">
+            短链会先 302 到作品页，再从 <code>window.INIT_STATE</code> 里取数据，不需要 Cookie。
+            支持视频与图集；长视频入口会自动改写成标准作品页。
+          </p>
+        </section>
+      </section>
+
+      <!-- ── 微博 ─────────────────────────────────────────────── -->
+      <section class="pane" data-pane="weibo">
+        <section class="card" id="wbHead">
+          <h2 class="card-title">
+            <span>微博 <small id="wbCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="wbEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="wbState"></div>
+          <p class="hint">
+            走 <code>m.weibo.cn</code> 的接口，会自动领一份访客身份（完全匿名的请求会被 403）。
+            支持 <code>m.weibo.cn/status/…</code>、<code>weibo.com/&lt;uid&gt;/&lt;mid&gt;</code>、
+            <code>video.weibo.com/show?fid=…</code> 这几种链接。纯文字微博没有可下载的媒体。
+          </p>
+        </section>
+      </section>
+
+      <!-- ── 卡片外观 ─────────────────────────────────────────── -->
+      <section class="pane" data-pane="appearance">
+        <section class="card">
+          <h2 class="card-title">
+            <span>卡片外观 <small>改哪一项，下面都会立刻重新渲染</small></span>
+            <button id="lookSave" class="primary" type="button">保存外观</button>
+          </h2>
+
+          <div class="look-grid">
+            <div class="look-controls">
+            <div class="look-field">
+              <label>主题</label>
+              <div class="seg" id="lookTheme">
+                <button type="button" data-theme="light" class="on">浅色</button>
+                <button type="button" data-theme="dark">深色</button>
+              </div>
+            </div>
+
+            <div class="look-field">
+              <label for="lookAccentText">强调色</label>
+              <div class="color-row">
+                <input id="lookAccent" type="color" value="#00AEEC" aria-label="选择强调色" />
+                <input id="lookAccentText" type="text" value="#00AEEC" maxlength="7"
+                       spellcheck="false" autocomplete="off" placeholder="#00AEEC" />
+              </div>
+            </div>
+
+            <div class="look-field">
+              <label>版式</label>
+              <div class="seg" id="lookLayout">
+                <button type="button" data-layout="standard" class="on">标准</button>
+                <button type="button" data-layout="compact">紧凑</button>
+              </div>
+            </div>
+
+            <div class="look-field">
+              <label for="lookWidth">宽度 <b id="lookWidthValue">760</b> px</label>
+              <input id="lookWidth" type="range" min="560" max="1000" step="20" value="760" />
+            </div>
+
+            <div class="look-field">
+              <label for="lookRadius">圆角 <b id="lookRadiusValue">10</b> px</label>
+              <input id="lookRadius" type="range" min="0" max="24" step="2" value="10" />
+            </div>
+
+            <div class="look-field">
+              <label for="lookWatermark">底部署名</label>
+              <input id="lookWatermark" type="text" maxlength="40"
+                     placeholder="留空则不显示，例如「由 XX 解析」" autocomplete="off" />
+            </div>
+
+            <div class="look-field look-span">
+              <label>显示内容</label>
+              <div class="look-switches">
+                <label class="check"><input id="lookCover" type="checkbox" checked /><span>封面</span></label>
+                <label class="check"><input id="lookTime" type="checkbox" checked /><span>发布时间</span></label>
+                <label class="check"><input id="lookStats" type="checkbox" checked /><span>数据条</span></label>
+                <label class="check"><input id="lookBrand" type="checkbox" checked /><span>平台角标</span></label>
+                <label class="check"><input id="lookQr" type="checkbox" /><span>二维码</span></label>
+              </div>
+            </div>
+          </div>
+
+            <div class="look-preview">
+              <div class="look-preview-head">
+                <span>实时预览 <i>示例数据，不联网、不产生解析记录</i></span>
+                <span class="look-head-actions">
+                  <button id="lookRefresh" class="ghost mini" type="button">刷新</button>
+                </span>
+              </div>
+              <div class="look-frame" id="lookFrameWrap">
+                <div id="lookPreviewHost"></div>
+              </div>
+              <div class="look-status" id="lookStatus">主题 light · 版式 标准 · 宽度 760px · 圆角 10px</div>
+            </div>
+          </div>
+
+        </section>
+      </section>
+
       <section class="pane" data-pane="probe">
         <section class="card">
           <h2>试解析 <small>不会发到群里，也不占去重窗口</small></h2>

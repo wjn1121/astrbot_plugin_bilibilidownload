@@ -40,6 +40,8 @@ class HistoryEntry:
     ms: int = 0            # 解析耗时（毫秒）
     card_ok: bool = False  # 这次是否成功出图（false 时走的是纯文本降级）
     umo: str = ""
+    summary: str = ""      # AI 总结（截断保存，面板「最近」展示用）
+    summary_basis: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
