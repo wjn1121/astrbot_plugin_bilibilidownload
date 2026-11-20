@@ -186,6 +186,20 @@ function renderPlatformPage(name) {
       ["能力", caps || "—"],
       ["平台标识", name],
     ];
+
+    // 近期解析情况：从 history 聚合，能一眼看出这个平台最近是否在失败
+    const health = (lastStatus?.platform_health || {})[name] || null;
+    if (health && (health.ok || health.fail)) {
+      const total = health.ok + health.fail;
+      const rate = total ? Math.round((health.ok / total) * 100) : 0;
+      rows.push(["近期解析", `${health.ok} 成功 / ${health.fail} 失败 · 成功率 ${rate}%`]);
+      if (health.last_at) {
+        rows.push(["最近一次", new Date(health.last_at * 1000).toLocaleString("zh-CN")]);
+      }
+      if (health.last_error) rows.push(["最近错误", health.last_error]);
+    } else {
+      rows.push(["近期解析", "还没有记录"]);
+    }
     if (row?.error) rows.push(["加载错误", row.error]);
     stateEl.innerHTML = rows
       .map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(String(v))}</b></div>`)
@@ -218,31 +232,57 @@ function renderTune(name) {
     return;
   }
 
-  box.innerHTML = items
-    .map((item) => {
-      const id = `tune_${name}_${item.key}`;
-      const restore =
-        item.source === "panel"
-          ? `<button class="mini" type="button" data-restore="${esc(item.key)}" data-page="${esc(name)}">恢复</button>`
-          : "";
-      if (item.kind === "bool") {
-        return `<label class="tune-row" for="${id}">
-          <span class="tune-label">${esc(item.label)}</span>
-          <span class="tune-ctl">
-            ${sourceTag(item.source)}
-            <input type="checkbox" id="${id}" data-key="${esc(item.key)}" ${item.value ? "checked" : ""} />
-            ${restore}
-          </span>
-        </label>`;
-      }
+  const renderRow = (item) => {
+    const id = `tune_${name}_${item.key}`;
+    const restore =
+      item.source === "panel"
+        ? `<button class="mini" type="button" data-restore="${esc(item.key)}" data-page="${esc(name)}">恢复</button>`
+        : "";
+    if (item.kind === "bool") {
       return `<label class="tune-row" for="${id}">
-        <span class="tune-label">${esc(item.label)}${item.unit ? `<i>（${esc(item.unit)}）</i>` : ""}</span>
+        <span class="tune-label">${esc(item.label)}</span>
         <span class="tune-ctl">
           ${sourceTag(item.source)}
-          <input type="number" id="${id}" data-key="${esc(item.key)}" value="${esc(String(item.value ?? ""))}" />
+          <input type="checkbox" id="${id}" data-key="${esc(item.key)}" ${item.value ? "checked" : ""} />
           ${restore}
         </span>
       </label>`;
+    }
+    return `<label class="tune-row" for="${id}">
+      <span class="tune-label">${esc(item.label)}${item.unit ? `<i>（${esc(item.unit)}）</i>` : ""}</span>
+      <span class="tune-ctl">
+        ${sourceTag(item.source)}
+        <input type="number" id="${id}" data-key="${esc(item.key)}" value="${esc(String(item.value ?? ""))}" />
+        ${restore}
+      </span>
+    </label>`;
+  };
+
+  // 按 section 分组：B 站那边十几项，不分组就是一整坨，找不到想改的那条
+  const order = [];
+  const grouped = new Map();
+  items.forEach((item) => {
+    const sec = item.section || "";
+    if (!grouped.has(sec)) {
+      grouped.set(sec, []);
+      order.push(sec);
+    }
+    grouped.get(sec).push(item);
+  });
+
+  // 固定顺序：解析范围在最前（最常改），卡片放最后
+  const SECTION_ORDER = ["解析范围", "视频发送", "内容增强", "卡片"];
+  const rank = (sec) => {
+    const idx = SECTION_ORDER.indexOf(sec);
+    return idx < 0 ? SECTION_ORDER.length : idx;
+  };
+  order.sort((a, b) => rank(a) - rank(b));
+
+  box.innerHTML = order
+    .map((sec) => {
+      const rows = grouped.get(sec).map(renderRow).join("");
+      if (!sec) return rows;
+      return `<div class="tune-group"><div class="tune-group-title">${esc(sec)}</div>${rows}</div>`;
     })
     .join("");
 

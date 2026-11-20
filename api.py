@@ -185,6 +185,7 @@ async def api_card_preview(plugin):
         normalize_theme,
         qr_markup,
         sanitize_accent,
+        signature_avatar,
     )
     from .core.media import MediaInfo
 
@@ -260,6 +261,8 @@ async def api_card_preview(plugin):
         show_stats=show_stats,
         watermark=watermark,
         qrcode=qrcode_svg,
+        # 预览要和真实卡片一致：没有这行就会「线上有头像、预览里没有」
+        signature_face=signature_avatar(),
     )
     try:
         html = Template(load_template()).render(**context)
@@ -328,6 +331,48 @@ async def api_file(plugin, token: str = ""):
 # ── GET /status ─────────────────────────────────────────────────────────
 
 
+def _platform_health(plugin) -> dict[str, dict]:
+    """按平台聚合近期解析情况（成功/失败条数、最近一次、最近一条错误）。
+
+    数据来自 ``history``——那是已落盘的解析记录，不用另开计数器，
+    也不会随着运行时间无限增长（``history_keep`` 是定长）。
+    """
+    health: dict[str, dict] = {}
+    try:
+        rows = plugin.history.recent()
+    except Exception:  # noqa: BLE001 - 统计坏了不该影响整个 status 接口
+        return health
+
+    for row in rows:
+        name = str(row.get("platform") or "").strip().lower()
+        if not name:
+            continue
+        item = health.setdefault(
+            name,
+            {
+                "ok": 0,
+                "fail": 0,
+                "last_at": 0.0,
+                "last_ok_at": 0.0,
+                "last_fail_at": 0.0,
+                "last_error": "",
+            },
+        )
+        at = float(row.get("at") or 0)
+        if at > item["last_at"]:
+            item["last_at"] = at
+        if row.get("ok"):
+            item["ok"] += 1
+            item["last_ok_at"] = max(item["last_ok_at"], at)
+        else:
+            item["fail"] += 1
+            item["last_fail_at"] = max(item["last_fail_at"], at)
+            # recent() 是倒序，第一次见到的失败就是最近那条
+            if not item["last_error"]:
+                item["last_error"] = str(row.get("detail") or "")[:120]
+    return health
+
+
 async def api_status(plugin):
     from quart import jsonify
 
@@ -357,6 +402,7 @@ async def api_status(plugin):
                 },
                 "cache": cache_rows,
                 "platforms": platforms.describe_all(plugin.enabled_platforms),
+                "platform_health": _platform_health(plugin),
                 "platform_errors": platforms.load_errors(),
                 "config": _safe_config(plugin),
                 "media_attempts": _attempt_rows(stats.get("media_attempts") or {}),
@@ -964,6 +1010,7 @@ async def api_settings(plugin):
                 "group": meta.get("group", ""),
                 "kind": meta.get("kind", "str"),
                 "unit": meta.get("unit", ""),
+                "section": meta.get("section", ""),
                 "value": value,
                 "source": "panel" if from_panel else "config",
             }

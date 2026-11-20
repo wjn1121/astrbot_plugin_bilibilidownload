@@ -507,6 +507,17 @@ button.platform:hover { border-color: var(--accent); }
 /* ── 调整项 ─────────────────────────────────────────────── */
 
 .tune { display: flex; flex-direction: column; }
+
+/* 分组标题：B 站那边十几项，加一层小标题才好找 */
+.tune-group { display: flex; flex-direction: column; }
+.tune-group + .tune-group { margin-top: 6px; }
+.tune-group-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  padding: 12px 2px 4px;
+}
 .tune-row {
   display: flex;
   align-items: center;

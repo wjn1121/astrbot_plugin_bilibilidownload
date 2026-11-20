@@ -163,25 +163,25 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
 
 #: 展示用元信息（面板用它生成控件，避免前后端各写一份键名）
 RUNTIME_META: dict[str, dict[str, Any]] = {
-    "send_video": {"label": "解析后自动发视频", "group": "bilibili", "kind": "bool"},
-    "max_video_mb": {"label": "视频体积上限 (MB)", "group": "bilibili", "kind": "int", "unit": "MB"},
+    "send_video": {"label": "解析后自动发视频", "group": "bilibili", "kind": "bool", "section": "视频发送"},
+    "max_video_mb": {"label": "视频体积上限", "group": "bilibili", "kind": "int", "section": "视频发送", "unit": "MB"},
     "public_base_url": {
         "label": "AstrBot 对外地址",
         "group": "bilibili",
-        "kind": "str",
+        "kind": "str", "section": "视频发送",
         "unit": "http://ip:端口",
     },
     "max_video_seconds": {
         "label": "视频时长上限",
         "group": "bilibili",
-        "kind": "int",
+        "kind": "int", "section": "视频发送",
         # 面板会渲染成「视频时长上限（秒，0 = 不限制）」，所以单位里带上 0 的含义
         "unit": "秒，0 = 不限制",
     },
-    "send_ebilibili_link": {"label": "附下载页链接", "group": "bilibili", "kind": "bool"},
-    "output_image": {"label": "图片卡片", "group": "bilibili", "kind": "bool"},
-    "card_width": {"label": "卡片宽度", "group": "appearance", "kind": "int", "unit": "px"},
-    "card_qrcode": {"label": "热评图带二维码", "group": "bilibili", "kind": "bool"},
+    "send_ebilibili_link": {"label": "附下载页链接", "group": "bilibili", "kind": "bool", "section": "视频发送"},
+    "output_image": {"label": "图片卡片", "group": "bilibili", "kind": "bool", "section": "卡片"},
+    "card_width": {"label": "卡片宽度", "group": "appearance", "kind": "int", "section": "卡片", "unit": "px"},
+    "card_qrcode": {"label": "热评图带二维码", "group": "bilibili", "kind": "bool", "section": "内容增强"},
     # 外观页自己画控件（主题是两个按钮、颜色是取色器），这里的元信息只用于
     # /settings 回显当前值，kind 保持 str 不影响平台页（group 不是 bilibili/douyin/xhs）。
     "card_theme": {"label": "卡片主题", "group": "appearance", "kind": "str"},
@@ -194,13 +194,13 @@ RUNTIME_META: dict[str, dict[str, Any]] = {
     "card_show_stats": {"label": "显示数据条", "group": "appearance", "kind": "bool"},
     "card_watermark": {"label": "卡片署名（水印）", "group": "appearance", "kind": "str"},
     "card_qr": {"label": "卡片带二维码", "group": "appearance", "kind": "bool"},
-    "show_replies": {"label": "发送热评图", "group": "bilibili", "kind": "bool"},
-    "replies_show_count": {"label": "热评展示条数", "group": "bilibili", "kind": "int", "unit": "条"},
-    "reply_limit": {"label": "参考热评条数", "group": "bilibili", "kind": "int", "unit": "条"},
+    "show_replies": {"label": "发送热评图", "group": "bilibili", "kind": "bool", "section": "内容增强"},
+    "replies_show_count": {"label": "热评展示条数", "group": "bilibili", "kind": "int", "section": "内容增强", "unit": "条"},
+    "reply_limit": {"label": "参考热评条数", "group": "bilibili", "kind": "int", "section": "内容增强", "unit": "条"},
     # 各平台开关：group 用平台名，面板会渲染到对应页签
-    "bilibili_video": {"label": "解析视频", "group": "bilibili", "kind": "bool"},
-    "bilibili_images": {"label": "解析图文 / 图集", "group": "bilibili", "kind": "bool"},
-    "bilibili_summary": {"label": "AI 总结（消耗 token）", "group": "bilibili", "kind": "bool"},
+    "bilibili_video": {"label": "解析视频", "group": "bilibili", "kind": "bool", "section": "解析范围"},
+    "bilibili_images": {"label": "解析图文 / 图集", "group": "bilibili", "kind": "bool", "section": "解析范围"},
+    "bilibili_summary": {"label": "AI 总结（消耗 token）", "group": "bilibili", "kind": "bool", "section": "解析范围"},
     "douyin_video": {"label": "解析视频", "group": "douyin", "kind": "bool"},
     "douyin_images": {"label": "解析图文 / 图集", "group": "douyin", "kind": "bool"},
     "douyin_send": {"label": "自动发送媒体", "group": "douyin", "kind": "bool"},
@@ -225,8 +225,8 @@ RUNTIME_META: dict[str, dict[str, Any]] = {
     "wechat_summary": {"label": "AI 总结（消耗 token）", "group": "wechat", "kind": "bool"},
     "enable_summary": {"label": "AI 总结（总开关）", "group": "common", "kind": "bool"},
     "summary_max_chars": {"label": "总结字数上限", "group": "common", "kind": "int", "unit": "字"},
-    "prefer_subtitle": {"label": "优先用字幕做总结", "group": "bilibili", "kind": "bool"},
-    "subtitle_max_chars": {"label": "字幕截取长度", "group": "bilibili", "kind": "int", "unit": "字"},
+    "prefer_subtitle": {"label": "优先用字幕做总结", "group": "bilibili", "kind": "bool", "section": "内容增强"},
+    "subtitle_max_chars": {"label": "字幕截取长度", "group": "bilibili", "kind": "int", "section": "内容增强", "unit": "字"},
     # 图集：抖音和小红书都有多图作品，所以两项都挂到这两个平台页上。
     # 键名带 xhs_ 前缀是历史原因（先做的小红书），改名会让已存的 runtime.json 失效。
     "xhs_send_images": {
