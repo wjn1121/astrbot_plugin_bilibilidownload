@@ -4,7 +4,7 @@
 > 自带 Web 面板：一屏看状态、粘链接试解析看卡片效果、按平台填登录凭据。
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.24.2-blue)](https://github.com/AstrBotDevs/AstrBot)
-[![Platform](https://img.shields.io/badge/platform-QQ_(aiocqhttp)-green)](#)
+[![Platform](https://img.shields.io/badge/platform-QQ%20%7C%20Telegram%20%7C%20Discord%20%2B9-green)](#)
 [![Version](https://img.shields.io/badge/version-1.1.0-orange)](metadata.yaml)
 [![Stars](https://img.shields.io/github/stars/wjn1121/astrbot_plugin_bilibilidownload?label=stars&color=yellow)](https://github.com/wjn1121/astrbot_plugin_bilibilidownload/stargazers)
 [![Downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcloud.astrbot.app%2Fapi%2Fv1%2Fmarket%2Fplugins.json&query=$%5B%27wjn1121%2Fastrbot_plugin_bilibilidownload%27%5D.download_count&label=downloads&color=green&suffix=%E6%AC%A1&cacheSeconds=3600)](https://cloud.astrbot.app/market)
@@ -373,7 +373,7 @@ data/plugin_data/astrbot_plugin_bilibilidownload/
 | 项目 | 要求 |
 |------|------|
 | AstrBot | ≥ 4.24.2（面板依赖 `register_web_api`） |
-| 平台 | QQ（aiocqhttp）已声明支持 |
+| 平台 | 12 个已声明：QQ（aiocqhttp / 官方机器人）、Telegram、Discord、飞书、钉钉、企业微信、Slack、KOOK、Satori。解析与发图走 AstrBot 通用接口，平台无关；**表情回应与合并转发仅 QQ 生效**，其他平台自动降级（不贴表情、逐条发送） |
 | Python | ≥ 3.10（随 AstrBot 环境） |
 | 图片卡片 | 可选：需要 AstrBot 的文转图服务；不可用时自动退回纯文本 |
 | 网络 | 按启用的平台而定：B 站需 `api.bilibili.com` + `www.ebilibili.com` + `bilivideo.com`；小红书需 `xiaohongshu.com` / `xhslink.cn` / `*.xhscdn.com`；抖音需 `douyin.com` / `iesdouyin.com`。**海外机器访问国内站点容易超时或触发风控** |

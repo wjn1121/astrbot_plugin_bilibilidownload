@@ -2,11 +2,24 @@ name: astrbot_plugin_bilibilidownload        # 插件标识符（英文，唯一
 display_name: B站视频下载                    # 插件名称，显示在 AstrBot 市场上
 author: wjn1121                             # 作者
 version: 1.1.0                              # 语义化版本号（与 core/constants.py 保持一致）
-desc: 发送 B 站 / 小红书 / 抖音 / 小黑盒 / 快手 / 微博链接即可解析，由 AI 简要总结并渲染成图片卡片，还可按需把视频或图集发送到会话；自带 Web 面板
-short_desc: B站/小红书/抖音/小黑盒/快手/微博解析 + AI 总结卡片 + 下载
+desc: B站/小红书/抖音/小黑盒/快手/微博六平台链接解析，小红书无水印原图，B站动态图文，抖音图文视频；AI 总结 + 图片卡片 + 下载，自带 Web 面板。
+short_desc: 六平台链接解析 + 无水印图集 + AI 总结卡片 + 自动下载
 repo: https://github.com/wjn1121/astrbot_plugin_bilibilidownload
 support_platforms:                          # 声明支持的平台
+  # 解析、卡片、下载、发送都走 AstrBot 通用接口，平台无关；
+  # 只有「表情回应」和「合并转发」是 QQ 专属，其他平台自动降级（逐条发送 / 不贴表情）
   - aiocqhttp
+  - qq_official
+  - qq_official_webhook
+  - telegram
+  - discord
+  - lark
+  - dingtalk
+  - slack
+  - kook
+  - satori
+  - wecom
+  - wecom_ai_bot
 astrbot_version: ">=4.24.2"
 views:                                      # 插件 Web 页面（register_web_api 需要 4.24.2+）
   - name: panel
