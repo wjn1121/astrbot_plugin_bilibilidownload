@@ -2,8 +2,8 @@ name: astrbot_plugin_bilibilidownload        # 插件标识符（英文，唯一
 display_name: B站视频下载                    # 插件名称，显示在 AstrBot 市场上
 author: wjn1121                             # 作者
 version: 1.2.0                              # 语义化版本号（与 core/constants.py 保持一致）
-desc: B站/小红书/抖音/小黑盒/快手/微博/公众号七平台链接解析，小红书无水印原图，B站动态与专栏，公众号长图文；AI 总结 + 图片卡片 + 下载，自带 Web 面板。
-short_desc: 七平台链接解析 + 无水印图集 + AI 总结卡片 + 自动下载
+desc: B站/小红书/抖音/小黑盒/快手/微博/公众号七平台解析，小红书无水印原图，B站动态与专栏；AI 总结图片卡片，可下载视频图集，逐平台开关，自带面板。
+short_desc: 七平台解析 + 无水印原图 + AI 总结卡片 + 逐平台开关
 repo: https://github.com/wjn1121/astrbot_plugin_bilibilidownload
 support_platforms:                          # 声明支持的平台
   # 解析、卡片、下载、发送都走 AstrBot 通用接口，平台无关；

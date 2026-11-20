@@ -1,7 +1,7 @@
 # 📺 B站视频下载 — AstrBot 插件
 
-> 群友丢一个链接（B 站 / 小红书 / 抖音 / 小黑盒 / 快手 / 微博），机器人自动解析内容、用 AI 给出几句总结、渲染成一张图片卡片回复，并按需把视频或图集发到群里。
-> 自带 Web 面板：一屏看状态、粘链接试解析看卡片效果、按平台填登录凭据。
+> 群友丢一个链接（B 站 / 小红书 / 抖音 / 小黑盒 / 快手 / 微博 / 公众号），机器人自动解析内容、用 AI 给出几句总结、渲染成一张图片卡片回复，并按需把视频或图集发到群里。
+> 自带 Web 面板：一屏看状态与各平台的近期成功率、粘链接试解析看卡片效果、按平台填凭据、逐平台开关解析项。
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.24.2-blue)](https://github.com/AstrBotDevs/AstrBot)
 [![Platform](https://img.shields.io/badge/platform-QQ%20%7C%20Telegram%20%7C%20Discord%20%2B9-green)](#)
@@ -48,7 +48,7 @@ Bot:  [视频]
 
 入口：**AstrBot WebUI → 插件管理 → 「B站视频下载」→ 面板/页面按钮**。
 
-左栏按平台拆开，进哪个平台就改那个平台自己的东西：
+左栏按平台拆开，进哪个平台就改那个平台自己的东西。每个平台页顶上那张状态卡会显示**近期解析情况**（成功 / 失败条数、成功率、最近一次、最近一条错误），下面才是该平台的调整项：
 
 | 页签 | 能做什么 |
 |---|---|
@@ -56,9 +56,13 @@ Bot:  [视频]
 | **哔哩哔哩** | **扫码登录**（手机扫一下自动写入 SESSDATA）、检测登录态、退出登录、手动填 SESSDATA；以及自动发视频、体积与时长上限、热评条数、AI 总结、字幕等**可调项** |
 | **抖音** | 第三方解析接口地址（可测试连通性）+ 调整项；页面上也写清了抖音为什么时好时坏 |
 | **小红书** | Cookie（提高需登录笔记的成功率；点「测试」会直接告诉你**登的是谁**）+ 图集开关与张数上限 |
-| **卡片外观** | 主题、强调色、版式、宽度、圆角、底部署名，以及封面/时间/数据条/角标/二维码五个开关。下方**实时预览**：改哪一项立刻重画，卡片比面板宽时自动等比缩放，也能切 1:1；真实模板 + 示例数据，不联网、不产生解析记录 |
+| **小黑盒** | Cookie（可选，机房 IP 容易撞人机验证时填一份）+ 调整项；页面上写清了「图集接口不返回图片」这个平台限制 |
+| **快手** | 调整项（解析范围 / 自动发送 / AI 总结）；不需要任何凭据 |
+| **微博** | 调整项；访客身份由插件自动领取，页面上说明了「纯文字微博没有可下载的媒体」 |
+| **公众号** | 调整项；文章页直接服务端渲染，不需要 Cookie，页面上注明了只处理图文 |
+| **卡片外观** | 主题、强调色、版式、宽度、圆角、底部**署名（头像 + 昵称）**，以及封面/时间/数据条/角标/二维码五个开关。下方**实时预览**：改哪一项立刻重画，卡片比面板宽时自动等比缩放，也能切 1:1；真实模板 + 示例数据，不联网、不产生解析记录 |
 | **试解析** | 粘一条链接或整段分享口令 → 元信息 + **真正会发出去的那张卡片图片** + AI 总结 + 能否拿到直链。**不发群、不占去重窗口** |
-| **最近** | 最近 50 条解析记录（时间 / 平台 / 标题 / 耗时 / 结果），可按平台过滤 |
+| **最近** | 最近 50 条解析记录（时间 / 平台 / 标题 / 耗时 / 结果 / **AI 总结摘要**），可按平台过滤 |
 | **缓存** | 各平台缓存条数与命中率，一键清空（图形版 `/bdlclear`） |
 
 #### 关于「面板里改设置」
@@ -190,7 +194,7 @@ pip install -r astrbot_plugin_bilibilidownload/requirements.txt
 |--------|------|--------|------|
 | `trigger_scope` | 下拉 | `group` | 触发范围：仅群聊 / 仅私聊 / 两者 |
 | `need_at_in_group` | 开关 | `false` | 群聊中是否必须 @机器人 才自动解析，防群里刷屏 |
-| `enabled_platforms` | 列表 | `["bilibili","douyin","xiaohongshu"]` | 启用的解析平台：`bilibili` / `douyin` / `xiaohongshu`；**留空表示全部启用**，书写顺序决定同一段文本先问哪个平台 |
+| `enabled_platforms` | 列表 | `["bilibili","douyin","xiaohongshu","heybox","kuaishou","weibo","wechat"]` | 启用的解析平台：`bilibili` / `douyin` / `xiaohongshu` / `heybox` / `kuaishou` / `weibo` / `wechat`；**留空表示全部启用**，书写顺序决定同一段文本先问哪个平台 |
 | `react_emoji_id` | 整数 | `289` | 收到链接时贴的表情 ID（仅 QQ）；填 `0` 则改回文字提示 |
 | `send_video` | 开关 | `false` | **是否自动发送视频文件**；关闭时靠「下载」/`/bdl` 按需触发 |
 | `video_send_mode` | 下拉 | `auto` | 视频发送方式：自动（失败降级直链）/ 仅本地文件 / 仅直链 URL |
@@ -224,13 +228,13 @@ pip install -r astrbot_plugin_bilibilidownload/requirements.txt
 | `card_show_cover` | 开关 | `true` | 是否显示封面；关掉后只留标题、数据与总结 |
 | `card_show_time` | 开关 | `true` | 是否显示发布时间（UP 主昵称下面那一行） |
 | `card_show_stats` | 开关 | `true` | 是否显示时长 / 播放 / 点赞那一排；解析不到的项自动省略 |
-| `card_watermark` | 文本 | （空） | 卡片左下角的署名小字，如「由 XX 解析」；留空不显示 |
+| `card_watermark` | 文本 | `@wjn1121` | 卡片底部署名，前面带头像。填自己的昵称，或「由 XX 解析」这类文字；留空则署名和头像一起隐藏 |
 | `card_qr` | 开关 | `false` | 卡片右下角画视频二维码（本地生成、不联网），与热评图那个互不影响 |
 | `history_keep` | 整数 | `50` | 面板「最近」页保留多少条解析记录；填 `0` 不记录 |
 | `card_qrcode` | 开关 | `true` | 热评图右上角画视频链接的二维码（**本地生成、不联网、不引依赖**）；不需要可关掉 |
 | `verbose_log` | 开关 | `false` | 详细日志：输出降级原因、下载进度、耗时，排查问题时开启 |
 
-> 🎛️ **平台专属项不在上面这张表里**（比如「图集最多发送张数」「自动发送图集」「抖音第三方接口」「小红书 Cookie」）。这些在**面板对应的平台页**里改，写进 `runtime.json` 覆盖层，改完即时生效、不用重启，也不污染 AstrBot 的配置文件。
+> 🎛️ **平台专属项不在上面这张表里**（比如「图集最多发送张数」「自动发送图集」「抖音第三方接口」「小红书 Cookie」，以及每个平台那四项「解析视频 / 解析图文 / 自动发送媒体 / AI 总结」）。这些在**面板对应的平台页**里改，写进 `runtime.json` 覆盖层，改完即时生效、不用重启，也不污染 AstrBot 的配置文件。
 
 ---
 
@@ -308,6 +312,8 @@ astrbot_plugin_bilibilidownload/
 │   ├── replies_card.html           # 热评卡片的 Jinja2 模板（独立成图）
 │   ├── video_card_preview.html     # 信息卡片静态预览
 │   └── replies_card_preview.html   # 热评卡片静态预览
+├── assets/
+│   └── signature_avatar.jpg  # 卡片署名的作者头像（128×128，内嵌成 data URI）
 ├── README.md             # 本文件
 ├── CHANGELOG.md          # 更新日志
 ├── LICENSE               # MIT 许可证
@@ -317,10 +323,16 @@ astrbot_plugin_bilibilidownload/
     ├── platforms/        # 平台层：新增平台只需在这里加一个文件
     │   ├── base.py       #   BasePlatform：match / parse / resolve_media / 凭据
     │   ├── registry.py   #   逐个加载 + 单个失败不影响其它
-    │   ├── bilibili.py   #   哔哩哔哩（视频 / 分P / 字幕 / 热评）
-    │   ├── douyin.py     #   抖音（分享页 SSR + 第三方接口兜底）
+    │   ├── bilibili.py   #   哔哩哔哩（视频 / 分P / 字幕 / 热评 / 动态 / 专栏）
+    │   ├── douyin.py     #   抖音（分享页 SSR + a_bogus 签名 + 第三方接口三条路）
+    │   ├── douyin_session.py  # 抖音会话层（ttwid 保持 / WAF 挑战 / 请求预算）
+    │   ├── douyin_sign.py     # a_bogus 签名（纯 Python，无外部依赖）
     │   ├── xiaohongshu.py#   小红书（图文 / 视频 / 无水印原图）
-    │   └── errors.py     #   PlatformError / MediaNotFound / MediaProtected
+    │   ├── heybox.py     #   小黑盒（移动通道签名，视频与文字帖）
+    │   ├── kuaishou.py   #   快手（短链跳转 + INIT_STATE 解析）
+    │   ├── weibo.py      #   微博（访客身份 + m.weibo.cn 接口）
+    │   ├── wechat.py     #   公众号（文章页 SSR，正文 + 配图）
+    │   └── errors.py     #   PlatformError / MediaNotFound / MediaProtected / MediaDisabled
     ├── dispatch.py       # 发送编排（合并转发 / 逐条 / 失败兜底）
     ├── runtime.py        # 面板覆盖层（runtime.json）与生效值计算
     ├── history.py        # 面板「最近」页的解析记录
@@ -380,11 +392,23 @@ data/plugin_data/astrbot_plugin_bilibilidownload/
 | 平台 | 12 个已声明：QQ（aiocqhttp / 官方机器人）、Telegram、Discord、飞书、钉钉、企业微信、Slack、KOOK、Satori。解析与发图走 AstrBot 通用接口，平台无关；**表情回应与合并转发仅 QQ 生效**，其他平台自动降级（不贴表情、逐条发送） |
 | Python | ≥ 3.10（随 AstrBot 环境） |
 | 图片卡片 | 可选：需要 AstrBot 的文转图服务；不可用时自动退回纯文本 |
-| 网络 | 按启用的平台而定：B 站需 `api.bilibili.com` + `www.ebilibili.com` + `bilivideo.com`；小红书需 `xiaohongshu.com` / `xhslink.cn` / `*.xhscdn.com`；抖音需 `douyin.com` / `iesdouyin.com`。**海外机器访问国内站点容易超时或触发风控** |
+| 网络 | 按启用的平台而定：B 站 `api.bilibili.com` / `hdslb.com` / `bilivideo.com`；小红书 `xiaohongshu.com` / `xhslink.cn` / `*.xhscdn.com`；抖音 `douyin.com` / `iesdouyin.com`；小黑盒 `api.xiaoheihe.cn`；快手 `kuaishou.com` / `gifshow.com` / `kwimgs.com`；微博 `weibo.cn` / `weibo.com` / `weibocdn.com`；公众号 `mp.weixin.qq.com` / `mmbiz.qpic.cn`。**海外机器访问国内站点容易超时或触发风控** |
 
 ---
 
 ## ❓ FAQ
+
+**Q：卡片底部的头像和署名怎么没了？**
+
+A：署名文字被清空了。署名留空时头像会一并隐藏（不然会剩一个孤零零的头像），卡片底部只保留一条分隔线。想恢复就去面板「卡片外观 → 底部署名」填回文字，比如 `@你的昵称`。
+
+**Q：关掉某个平台的「解析视频」后，发它的视频链接为什么提示「已在面板关闭」？**
+
+A：这是预期行为，不是报错。因为光看链接分不出是视频还是图文，插件只能解析完再判断，所以提示语特意写成「已在面板里关闭（想用就去打开）」，而不是「作品不存在」——避免让人以为链接坏了。要恢复去那个平台页把开关打开即可。
+
+**Q：某个平台老是失败，怎么知道原因？**
+
+A：进那个平台页，顶部状态卡会显示**近期解析情况**：成功 / 失败条数、成功率、最近一次的时间，以及**最近一条错误的具体原因**。比如抖音常见的是「没能从抖音链接里识别出作品 ID」（链接不完整）或「SSR 被风控」。左栏「概览」里还有全部平台的汇总和最近一次错误。
 
 **Q：为什么只发了文字，没有视频文件？**
 
