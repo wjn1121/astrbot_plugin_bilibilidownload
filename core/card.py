@@ -114,6 +114,30 @@ _REPLIES_TEMPLATE_PATH = (
 _template_cache: str | None = None
 _replies_template_cache: str | None = None
 
+#: 署名旁的作者头像（随插件打包，128×128 / 约 6KB）
+_ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
+_SIGNATURE_AVATAR = _ASSET_DIR / "signature_avatar.jpg"
+_signature_avatar_cache: str | None = None
+
+
+def signature_avatar() -> str:
+    """内置署名头像的 data URI，只读一次盘。
+
+    用 data URI 而不是 ``file://``：卡片最终是丢给 AstrBot 的文转图服务渲染的，
+    那个进程读不到本插件的目录，本地路径会裂图。
+    """
+    global _signature_avatar_cache
+    if _signature_avatar_cache is None:
+        try:
+            raw = _SIGNATURE_AVATAR.read_bytes()
+        except OSError:
+            _signature_avatar_cache = ""
+        else:
+            _signature_avatar_cache = (
+                "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii")
+            )
+    return _signature_avatar_cache
+
 
 def template_path() -> Path:
     """卡片模板的实际路径（用于加载时的存在性检查与日志展示）。"""
@@ -264,6 +288,7 @@ def build_context(
     show_stats: bool = True,
     watermark: str = "",
     qrcode: str = "",
+    signature_face: str = "",
 ) -> dict:
     """把 ``MediaInfo`` 映射成模板变量。
 
@@ -298,6 +323,8 @@ def build_context(
         "show_time": bool(show_time),
         "show_stats": bool(show_stats),
         "watermark": str(watermark or "").strip(),
+        # 有署名才带头像；用户清空署名时头像也不该孤零零留着
+        "signature_face": signature_face if str(watermark or "").strip() else "",
         "qrcode": qrcode or "",
         "stats": stats,
         "brand": (info.platform or "").strip().lower(),
@@ -387,6 +414,7 @@ async def render_card(
                 show_stats=show_stats,
                 watermark=watermark,
                 qrcode=qrcode,
+                signature_face=signature_avatar(),
             )
             # 外层再套一层总预算：html_render 自己的 timeout 只管「一次截图」，
             # 管不住 t2i 在多个端点之间的轮换重试。

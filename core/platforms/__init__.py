@@ -18,7 +18,13 @@
 from __future__ import annotations
 
 from .base import BasePlatform, ParseHint
-from .errors import MediaNotFound, MediaProtected, PlatformError, PlatformUnavailable
+from .errors import (
+    MediaDisabled,
+    MediaNotFound,
+    MediaProtected,
+    PlatformError,
+    PlatformUnavailable,
+)
 from .registry import (
     combined_trigger_regex,
     describe_all,
@@ -32,6 +38,7 @@ from .registry import (
 
 __all__ = [
     "BasePlatform",
+    "MediaDisabled",
     "MediaNotFound",
     "MediaProtected",
     "ParseHint",

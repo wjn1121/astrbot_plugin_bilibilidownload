@@ -52,7 +52,17 @@ from .core.card import (
 from .core.constants import LOG_TAG, PLUGIN_NAME, VERSION
 from .core.bili_login import BiliQrLogin
 from .core.credentials import CredentialStore
-from .core.runtime import RUNTIME_DEFAULTS, RUNTIME_SPEC, RuntimeStore
+from .core.runtime import RUNTIME_DEFAULTS, RUNTIME_META, RUNTIME_SPEC, RuntimeStore
+
+#: 平台细粒度开关的键名形如 `<平台>_<类型>`（bilibili_video / wechat_summary…）。
+#: 平台名从 RUNTIME_META 的 group 派生，避免以后加平台时这里忘了同步。
+_PLATFORM_FLAG_GROUPS = frozenset(
+    meta.get("group")
+    for meta in RUNTIME_META.values()
+    if isinstance(meta.get("group"), str)
+    and meta["group"] not in ("common", "appearance")
+)
+_PLATFORM_FLAG_KINDS = frozenset({"video", "images", "send", "summary"})
 from .core.dispatch import DispatchMixin, ProcessResult
 from .core.downloader import DownloadError, VideoTooLarge, cleanup_old_files, download_video
 from .core.formatting import (
@@ -67,6 +77,7 @@ from .core.history import HistoryEntry, HistoryStore
 from .core.link_parser import DOWNLOAD_WORD_REGEX, url_from_card
 from .core.media import CAP_REPLIES, CAP_SUMMARY, MediaInfo, MediaRef
 from .core.platforms import (
+    MediaDisabled,
     MediaNotFound,
     MediaProtected,
     ParseHint,
@@ -502,6 +513,14 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         self.xhs_send_images = bool(pick("xhs_send_images"))
         self.xhs_max_images = max(1, min(35, int(pick("xhs_max_images"))))
 
+        # 各平台的细粒度开关（解析视频 / 解析图文 / 自动发媒体 / AI 总结）。
+        # 按键名批量取，新增平台时只要在 RUNTIME_SPEC 里登记就会自动生效，
+        # 不用再回来加一行——之前加平台漏改这里，开关就会读不到值。
+        for key in RUNTIME_SPEC:
+            head, _, tail = key.rpartition("_")
+            if head in _PLATFORM_FLAG_GROUPS and tail in _PLATFORM_FLAG_KINDS:
+                setattr(self, key, bool(pick(key)))
+
         # 平台启停：面板存过就用面板的，否则退回插件配置里的原始列表
         overridden = store.platforms()
         self.enabled_platforms = (
@@ -848,10 +867,12 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
         # （B 站看 sessdata 与 prefer_subtitle），编排层不该认识"凭据"这种概念。
         hint = ParseHint(
             reply_limit=self.reply_limit,
-            want_summary=self.enable_summary,
+            want_summary=self.enable_summary
+            and self._platform_flag(ref.platform, "summary"),
             want_subtitle=True,
         )
         media = await platform.parse(ref, hint=hint)
+        self._check_scope(media)
 
         # 补登记真实 ID：短链在匹配阶段只能用自己的原串，这里补上才能与长链互通
         self._remember_busy(media.dedup_key)
@@ -1134,13 +1155,13 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
 
             direct_url: str | None = None
             oversize_note: str | None = None
-            if self.send_video and result.info is not None:
+            if result.info is not None and self._platform_send(result.info.platform):
                 video_path, direct_url, oversize_note = await self._download(result.info)
 
             # 图集：与视频并行存在（图文笔记没有视频，视频笔记也可能带图封面）
             if (
                 result.info is not None
-                and self.xhs_send_images
+                and self._platform_send(result.info.platform)
                 and result.info.image_items()
             ):
                 result.gallery_paths = await self._download_gallery(
@@ -1192,6 +1213,46 @@ class BilibiliDownloadPlugin(DispatchMixin, Star):
                 self._safe_unlink(result.video_path)
                 for gallery_path in result.gallery_paths or []:
                     self._safe_unlink(gallery_path)
+
+    def _platform_flag(self, platform: str, suffix: str, default: bool = True) -> bool:
+        """读某个平台的细粒度开关（如 ``bilibili_summary``）。
+
+        键不存在时返回 ``default``：老配置里没有这些键，不能因为读不到就当成「全关」。
+        """
+        name = str(platform or "").strip().lower()
+        if not name:
+            return default
+        return bool(getattr(self, f"{name}_{suffix}", default))
+
+    def _platform_send(self, platform: str) -> bool:
+        """该平台解析完是否自动下载并发送媒体。
+
+        B 站和小红书沿用历史键（``send_video`` / ``xhs_send_images``），
+        其余平台走 ``<name>_send``——老配置里没有新键，所以默认发。
+        """
+        name = str(platform or "").strip().lower()
+        if name == "bilibili":
+            return bool(self.send_video)
+        if name == "xiaohongshu":
+            return bool(self.xhs_send_images)
+        return self._platform_flag(name, "send")
+
+    def _check_scope(self, media: MediaInfo) -> None:
+        """解析后按平台开关拦截不该发的内容。
+
+        为什么不在解析前判断：光看链接分不出是视频还是图文，只有解析完才知道
+        ``items`` 里有什么。这里宁可白跑一次请求，也不要让用户以为自己关了个寂寞。
+        """
+        name = (media.platform or "").strip().lower()
+        kinds = {item.kind for item in media.items}
+        if "video" in kinds and not self._platform_flag(name, "video"):
+            raise MediaDisabled(
+                f"{media.platform} 的视频解析已在面板里关闭（想用就去打开）"
+            )
+        if "image" in kinds and not self._platform_flag(name, "images"):
+            raise MediaDisabled(
+                f"{media.platform} 的图文解析已在面板里关闭（想用就去打开）"
+            )
 
     def _record_history(
         self,

@@ -224,6 +224,17 @@
             不填也能解析视频与文字帖。建议用小号。
           </p>
         </section>
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="hbSave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="hbTune"></div>
+          <p class="hint">
+            「自动发送媒体」关掉后只出卡片，不下载视频/图片；「AI 总结」关掉能省 token——
+            每篇内容会调用一次模型。
+          </p>
+        </section>
       </section>
 
       <!-- ── 快手 ─────────────────────────────────────────────── -->
@@ -237,6 +248,17 @@
           <p class="hint">
             短链会先 302 到作品页，再从 <code>window.INIT_STATE</code> 里取数据，不需要 Cookie。
             支持视频与图集；长视频入口会自动改写成标准作品页。
+          </p>
+        </section>
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="ksSave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="ksTune"></div>
+          <p class="hint">
+            「自动发送媒体」关掉后只出卡片，不下载视频/图片；「AI 总结」关掉能省 token——
+            每篇内容会调用一次模型。
           </p>
         </section>
       </section>
@@ -255,6 +277,17 @@
             <code>video.weibo.com/show?fid=…</code> 这几种链接。纯文字微博没有可下载的媒体。
           </p>
         </section>
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="wbSave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="wbTune"></div>
+          <p class="hint">
+            「自动发送媒体」关掉后只出卡片，不下载视频/图片；「AI 总结」关掉能省 token——
+            每篇内容会调用一次模型。
+          </p>
+        </section>
       </section>
 
       <!-- ── 公众号 ───────────────────────────────────────────── -->
@@ -269,6 +302,17 @@
             文章页是服务端渲染的，直接抓 <code>mp.weixin.qq.com/s/…</code> 取正文与配图，
             <b>不需要 Cookie</b>。支持短链 <code>/s/&lt;短码&gt;</code> 和带
             <code>__biz/mid/idx</code> 参数的长链。只处理图文，文章内嵌视频没有稳定直链。
+          </p>
+        </section>
+        <section class="card">
+          <h2 class="card-title">
+            <span>调整 <small>改完点保存，立刻生效</small></span>
+            <button id="wxSave" class="primary" type="button">保存调整</button>
+          </h2>
+          <div class="tune" id="wxTune"></div>
+          <p class="hint">
+            「自动发送媒体」关掉后只出卡片，不下载视频/图片；「AI 总结」关掉能省 token——
+            每篇内容会调用一次模型。
           </p>
         </section>
       </section>

@@ -18,7 +18,8 @@
       show_cover    是否显示封面
       show_time     是否显示发布时间
       show_stats    是否显示时长/播放/点赞那一排
-      watermark     底部署名文字（空则不渲染；非空时渲染成左侧胶囊）
+      watermark     底部署名文字（空则不渲染）
+      signature_face 署名旁的圆形头像 data URI（空则退化成胶囊样式）
       qrcode        视频二维码的内联 SVG（空则不渲染）
       owner         UP 主昵称
       owner_face    头像（data URI 或 URL，可空 → 显示灰底圆形占位）
@@ -190,7 +191,24 @@
     padding-top: calc(var(--u) * 0.7); border-top: 1px solid var(--line);
   }
 
-  /* 署名做成一枚胶囊：比裸文字更像「出品方」，又不抢正文 */
+  .sign { display: flex; align-items: center; gap: calc(var(--u) * 0.5); min-width: 0; }
+
+  /* 有头像时不再套胶囊：头像本身就是标识，再叠一层底色会显得脏 */
+  .sign-face {
+    flex: 0 0 auto;
+    width: calc(var(--u) * 1.6); height: calc(var(--u) * 1.6);
+    border-radius: 50%; object-fit: cover;
+    /* 中间灰的描边：浅色主题看得见、深色主题也不至于消失 */
+    box-shadow: 0 0 0 1px rgba(127, 127, 127, 0.35);
+  }
+
+  .sign.has-face .watermark {
+    padding: 0; background: none;
+    font-size: calc(var(--u) * 0.95); font-weight: 600;
+    letter-spacing: 0.02em; color: var(--fg); opacity: 0.82;
+  }
+
+  /* 无头像时退化为胶囊：比裸文字更像「出品方」 */
   .watermark {
     display: inline-block;
     padding: calc(var(--u) * 0.26) calc(var(--u) * 0.72);
@@ -346,7 +364,12 @@
 
     {% if watermark or qrcode %}
     <div class="footer">
-      <div class="watermark">{{ watermark }}</div>
+      {% if watermark %}
+      <div class="sign{% if signature_face %} has-face{% endif %}">
+        {% if signature_face %}<img class="sign-face" src="{{ signature_face }}" alt="">{% endif %}
+        <span class="watermark">{{ watermark }}</span>
+      </div>
+      {% endif %}
       {% if qrcode %}
       <div class="qr">{{ qrcode | safe }}</div>
       {% endif %}

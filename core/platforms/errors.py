@@ -28,7 +28,12 @@ class MediaProtected(PlatformError):
     """需要登录或风控拦截（412 / 需要 xsec_token / 试看内容）。"""
 
 
+class MediaDisabled(PlatformError):
+    """该内容的类型被用户在面板里关掉了（如关闭了「解析视频」）。"""
+
+
 __all__ = [
+    "MediaDisabled",
     "MediaNotFound",
     "MediaProtected",
     "PlatformError",
