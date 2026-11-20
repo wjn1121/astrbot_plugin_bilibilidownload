@@ -31,6 +31,7 @@ _BUILTIN_MODULES: tuple[str, ...] = (
     "heybox",
     "kuaishou",
     "weibo",
+    "wechat",
 )
 
 # 加载失败的平台：{模块名: 错误描述}；供面板展示，不影响其它平台

@@ -24,6 +24,7 @@
         <button type="button" class="nav-item" data-tab="heybox">🎮 <span>小黑盒</span><i class="dot" id="dotHeybox" hidden></i></button>
         <button type="button" class="nav-item" data-tab="kuaishou">⚡ <span>快手</span><i class="dot" id="dotKuaishou" hidden></i></button>
         <button type="button" class="nav-item" data-tab="weibo">🌐 <span>微博</span><i class="dot" id="dotWeibo" hidden></i></button>
+        <button type="button" class="nav-item" data-tab="wechat">📰 <span>公众号</span><i class="dot" id="dotWechat" hidden></i></button>
         <div class="nav-label">外观</div>
         <button type="button" class="nav-item" data-tab="appearance">🎨 <span>卡片外观</span></button>
         <div class="nav-label">工具</div>
@@ -252,6 +253,22 @@
             走 <code>m.weibo.cn</code> 的接口，会自动领一份访客身份（完全匿名的请求会被 403）。
             支持 <code>m.weibo.cn/status/…</code>、<code>weibo.com/&lt;uid&gt;/&lt;mid&gt;</code>、
             <code>video.weibo.com/show?fid=…</code> 这几种链接。纯文字微博没有可下载的媒体。
+          </p>
+        </section>
+      </section>
+
+      <!-- ── 公众号 ───────────────────────────────────────────── -->
+      <section class="pane" data-pane="wechat">
+        <section class="card" id="wxHead">
+          <h2 class="card-title">
+            <span>公众号 <small id="wxCaps"></small></span>
+            <label class="switch"><input type="checkbox" id="wxEnabled" /> <span>启用</span></label>
+          </h2>
+          <div class="kv" id="wxState"></div>
+          <p class="hint">
+            文章页是服务端渲染的，直接抓 <code>mp.weixin.qq.com/s/…</code> 取正文与配图，
+            <b>不需要 Cookie</b>。支持短链 <code>/s/&lt;短码&gt;</code> 和带
+            <code>__biz/mid/idx</code> 参数的长链。只处理图文，文章内嵌视频没有稳定直链。
           </p>
         </section>
       </section>

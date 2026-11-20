@@ -98,6 +98,12 @@ PLATFORM_REFERER = {
     "bilibili": "https://www.bilibili.com/",
     "douyin": "https://www.douyin.com/",
     "xiaohongshu": "https://www.xiaohongshu.com/",
+    "heybox": "https://www.xiaoheihe.cn/",
+    "kuaishou": "https://www.kuaishou.com/",
+    "weibo": "https://weibo.com/",
+    # 微信图床对来源很敏感：Referer 不对会返回一张「此图片来自微信公众平台
+    # 未经许可不可引用」的灰底图，卡片封面就成了占位图
+    "wechat": "https://mp.weixin.qq.com/",
 }
 DEFAULT_REFERER = "https://www.bilibili.com/"
 

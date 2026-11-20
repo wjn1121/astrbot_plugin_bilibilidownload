@@ -18,7 +18,7 @@
       show_cover    是否显示封面
       show_time     是否显示发布时间
       show_stats    是否显示时长/播放/点赞那一排
-      watermark     底部署名文字（空则不渲染）
+      watermark     底部署名文字（空则不渲染；非空时渲染成左侧胶囊）
       qrcode        视频二维码的内联 SVG（空则不渲染）
       owner         UP 主昵称
       owner_face    头像（data URI 或 URL，可空 → 显示灰底圆形占位）
@@ -56,6 +56,7 @@
     --panel: #F6F7F8;
     --line: #E3E5E7;
     --media-bg: #E3E5E7;
+    --chip-bg: #F2F3F5;
     --accent: {{ accent | default('#00AEEC') }};
     --radius: {{ radius | default(10) }}px;
   }
@@ -68,6 +69,7 @@
     --panel: #22252C;
     --line: #2E323A;
     --media-bg: #22252C;
+    --chip-bg: #272B33;
   }
   {% endif %}
 
@@ -183,12 +185,20 @@
 
   /* ── 底栏：署名 + 二维码 ─────────────────────────────────── */
   .footer {
-    display: flex; align-items: flex-end; justify-content: space-between;
-    gap: calc(var(--u) * 0.7); margin-top: calc(var(--u) * 0.8);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: calc(var(--u) * 0.7); margin-top: calc(var(--u) * 0.75);
+    padding-top: calc(var(--u) * 0.7); border-top: 1px solid var(--line);
   }
 
+  /* 署名做成一枚胶囊：比裸文字更像「出品方」，又不抢正文 */
   .watermark {
-    font-size: calc(var(--u) * 0.9); line-height: 1.4; color: var(--muted);
+    display: inline-block;
+    padding: calc(var(--u) * 0.26) calc(var(--u) * 0.72);
+    border-radius: 999px;
+    background: var(--chip-bg);
+    color: var(--muted);
+    font-size: calc(var(--u) * 0.85);
+    letter-spacing: 0.03em;
     word-break: break-all;
   }
 
@@ -266,6 +276,40 @@
           <path d="M12 4.4v15.2" stroke="#FF2442" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
         <span class="brand-text" style="color:#FF2442">小红书</span>
+      </div>
+      {% elif brand == "kuaishou" %}
+      <div class="brand">
+        {# 快手标识（橙底白三角） #}
+        <svg class="brand-svg" width="26" height="26" viewBox="0 0 24 24"
+             xmlns="http://www.w3.org/2000/svg">
+          <rect x="2" y="2" width="20" height="20" rx="6.5" fill="#FF5000"/>
+          <path d="M9.7 8.1v7.8l6.4-3.9z" fill="#FFFFFF"/>
+        </svg>
+        <span class="brand-text" style="color:#FF5000">快手</span>
+      </div>
+      {% elif brand == "weibo" %}
+      <div class="brand">
+        {# 微博标识（红色眼睛轮廓） #}
+        <svg class="brand-svg" width="27" height="27" viewBox="0 0 24 24" fill="none"
+             xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="12" cy="13.8" rx="8.4" ry="6.4" stroke="#E6162D" stroke-width="2.1"/>
+          <circle cx="9.7" cy="13.9" r="1.6" fill="#E6162D"/>
+          <path d="M13.4 9.4c1.5-.8 3.4-.4 4.5.9" stroke="#E6162D"
+                stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span class="brand-text" style="color:#E6162D">微博</span>
+      </div>
+      {% elif brand == "wechat" %}
+      <div class="brand">
+        {# 公众号标识（微信绿气泡 + 三个点） #}
+        <svg class="brand-svg" width="27" height="27" viewBox="0 0 24 24"
+             xmlns="http://www.w3.org/2000/svg">
+          <rect x="2.6" y="4" width="18.8" height="14.6" rx="4.2" fill="#07C160"/>
+          <circle cx="8.6" cy="11.3" r="1.25" fill="#FFFFFF"/>
+          <circle cx="12" cy="11.3" r="1.25" fill="#FFFFFF"/>
+          <circle cx="15.4" cy="11.3" r="1.25" fill="#FFFFFF"/>
+        </svg>
+        <span class="brand-text" style="color:#07C160">公众号</span>
       </div>
       {% endif %}
       {% endif %}

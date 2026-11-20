@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import asyncio
+import html as html_module
+import re
 from collections.abc import Callable
 
 from astrbot.api import logger
@@ -53,6 +55,43 @@ def _strip_image_suffix(url: str) -> str:
         return ""
     cleaned = url.split("@", 1)[0]
     return cleaned.replace("http://", "https://", 1)
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_BLOCK_END_RE = re.compile(r"<\s*(?:br|/p|/div|/h[1-6]|/li|/section)\s*/?\s*>", re.IGNORECASE)
+_IMG_SRC_RE = re.compile(r'<img[^>]+?src=["\']([^"\']+)', re.IGNORECASE)
+
+
+def _html_text(raw: str) -> str:
+    """专栏正文是 HTML，剥成纯文本但保留段落。"""
+    if not raw:
+        return ""
+    text = _BLOCK_END_RE.sub("\n", raw)
+    text = _TAG_RE.sub("", text)
+    text = html_module.unescape(text)
+    lines = [line.strip() for line in text.split("\n")]
+    return "\n".join(line for line in lines if line).strip()
+
+
+def _article_images(content: str, listed: list[str]) -> list[str]:
+    """合并正文 <img> 与接口的 image_urls，按出现顺序去重。"""
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def push(value: str) -> None:
+        url = (value or "").strip()
+        if url.startswith("//"):
+            url = "https:" + url
+        if not url.startswith("http") or url in seen:
+            return
+        seen.add(url)
+        urls.append(url)
+
+    for src in _IMG_SRC_RE.findall(content or ""):
+        push(src)
+    for item in listed:
+        push(str(item or ""))
+    return urls
 
 # 视频信息 / 热评 / 标签 / 字幕的进程内缓存 TTL（秒）。
 # 播放量这类统计会变，TTL 不宜过长；同一个视频常被多个群先后发出，缓存能省重复请求。
@@ -133,6 +172,15 @@ class BilibiliPlatform(BasePlatform):
                 extra={"bili_ref": ref, "dynamic_id": ref.dynamic_id},
             )
 
+        if ref.article_id:
+            # 专栏（read/cv<id>）：长图文，走专栏接口；不是视频，没有分P
+            return MediaRef(
+                platform=cls.name,
+                raw=ref.raw,
+                media_id=f"cv{ref.article_id}",
+                extra={"bili_ref": ref, "article_id": ref.article_id},
+            )
+
         # 裸 BV/av 号直接给出 media_id；短链要等一次跳转才知道
         media_id = ref.bvid or (f"av{ref.aid}" if ref.aid else None)
         return MediaRef(
@@ -151,6 +199,10 @@ class BilibiliPlatform(BasePlatform):
         dynamic_id = ref.extra.get("dynamic_id")
         if dynamic_id:
             return await self._parse_dynamic(str(dynamic_id), ref)
+
+        article_id = ref.extra.get("article_id")
+        if article_id:
+            return await self._parse_article(str(article_id), ref)
 
         api = self.api
         bili_ref = ref.extra.get("bili_ref")
@@ -242,6 +294,96 @@ class BilibiliPlatform(BasePlatform):
                 "share": int((stat.get("forward") or {}).get("count") or 0),
             },
         )
+
+    async def _parse_article(self, article_id: str, ref: MediaRef) -> MediaInfo:
+        """解析专栏（``bilibili.com/read/cv<id>``）。
+
+        专栏页本身是 SPA 空壳（3KB 左右，没有 SSR 数据），只能走
+        ``x/article/view`` 接口拿正文。这个接口对同一 IP 限流很紧，
+        实测连续请求会返回 ``-509 请求过于频繁``，所以带重试并区分
+        「限流」与「真的不存在」——别把限流报成作品已删除。
+        """
+        art = await self._fetch_article(article_id)
+        author = art.get("author") or {}
+        title = str(art.get("title") or "").strip()
+        content = str(art.get("content") or "")
+        text = _html_text(content)
+
+        listed = art.get("image_urls") or []
+        images = _article_images(content, [str(x) for x in listed if x])
+        images = [_strip_image_suffix(url) for url in images]
+
+        if not text and not images:
+            raise MediaNotFound("这篇专栏没有正文（可能已删除或仅作者可见）")
+
+        cover = _strip_image_suffix(str(art.get("banner_url") or ""))
+        pubdate = int(art.get("publish_time") or 0)
+        words = int(art.get("words") or 0)
+
+        desc = text
+        if desc.startswith(title):
+            desc = desc[len(title) :].lstrip(" \n｜|-—·:：")
+        if len(desc) > 600:
+            desc = desc[:600].rstrip() + "…"
+
+        return MediaInfo(
+            platform=self.name,
+            media_id=f"cv{article_id}",
+            source_url=ref.raw,
+            web_url=f"https://www.bilibili.com/read/cv{article_id}/",
+            title=title or (text[:40] if text else "B 站专栏"),
+            author=str(author.get("name") or ""),
+            author_id=str(author.get("mid") or ""),
+            author_avatar=str(author.get("face") or ""),
+            cover=cover or (images[0] if images else ""),
+            pubdate=pubdate,
+            desc=desc,
+            items=[
+                MediaItem(kind=KIND_IMAGE, url=url, referer="https://www.bilibili.com/")
+                for url in images[:9]
+            ],
+            extras={"images": images, "words": words},
+            stats={},
+        )
+
+    async def _fetch_article(self, article_id: str) -> dict:
+        """取专栏数据，``-509`` 时重试（限流不是错误）。"""
+        url = "https://api.bilibili.com/x/article/view"
+        headers = {
+            "User-Agent": UA_PC,
+            "Referer": f"https://www.bilibili.com/read/cv{article_id}/",
+            "Accept": "application/json, text/plain, */*",
+        }
+        last = ""
+        for attempt in range(3):
+            try:
+                async with self.session.get(
+                    url,
+                    params={"id": article_id},
+                    headers=headers,
+                    timeout=self.timeout,
+                ) as resp:
+                    payload = await resp.json(content_type=None)
+            except Exception as exc:  # noqa: BLE001
+                last = f"{type(exc).__name__}: {exc}"
+                await asyncio.sleep(1.5)
+                continue
+
+            code = payload.get("code") if isinstance(payload, dict) else None
+            if code == 0:
+                art = payload.get("data") or {}
+                if isinstance(art, dict) and art:
+                    return art
+                raise MediaNotFound("专栏接口返回空数据（可能已删除）")
+
+            last = f"{code} {payload.get('message') or ''}".strip()
+            if code != -509:
+                break
+            await asyncio.sleep(2.5 + attempt * 1.5)
+
+        if "-509" in last or "频繁" in last:
+            raise PlatformError(f"B 站专栏接口限流（{last}），过一会儿再试")
+        raise PlatformError(f"B 站专栏接口返回：{last or '未知错误'}")
 
     async def _normalize(
         self, api: BiliApi, ref: MediaRef, bili_ref

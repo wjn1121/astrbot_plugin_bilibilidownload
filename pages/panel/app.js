@@ -14,7 +14,7 @@
 const $ = (id) => document.getElementById(id);
 const Bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
 
-const PLATFORM_LABEL = { bilibili: "哔哩哔哩", douyin: "抖音", xiaohongshu: "小红书", heybox: "小黑盒" };
+const PLATFORM_LABEL = { bilibili: "哔哩哔哩", douyin: "抖音", xiaohongshu: "小红书", heybox: "小黑盒", kuaishou: "快手", weibo: "微博", wechat: "公众号" };
 const CAP_LABEL = {
   video: "视频",
   images: "图集",
@@ -31,6 +31,7 @@ const PLATFORM_PAGES = {
   heybox: { prefix: "hb", enableId: "hbEnabled" },
   kuaishou: { prefix: "ks", enableId: "ksEnabled" },
   weibo: { prefix: "wb", enableId: "wbEnabled" },
+  wechat: { prefix: "wx", enableId: "wxEnabled" },
 };
 
 let lastStatus = null;
